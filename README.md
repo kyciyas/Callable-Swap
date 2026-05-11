@@ -13,13 +13,12 @@ The system is modularized into four layers, from data acquisition to GPU kernel 
 
 | Layer | File Name | Detailed Role |
 | :--- | :--- | :--- |
-| **Data** | `Datahandler.py` | **Data Gateway**: Interfaces with ECOS (Bank of Korea) and yfinance APIs. Extracts and refines time-series for volatility analysis and snapshot data for pricing. |
-| | `Volatility.py` | **Statistical Analysis Engine**: Runs GARCH(1,1) and EWMA models. Estimates historical market volatility to provide an 'Initial Guess' for the optimization loop. |
-| **Optimization** | `GPUOptHWPricer.py`| **Batch Computing Kernel**: Powered by CuPy RawKernel. Parallelizes dozens of parameter scenarios in a single GPU call to maximize Jacobian calculation speed. |
-| | `HW_cal.py` / `LMM_cal.py`| **Dual Calibrator**: Controls the GPU batch engine to perform Gauss-Newton optimization targeting market Swaption prices. |
-| **Engine** | `Model_selection.py`| **Yield Curve Construction**: Uses QuantLib to bootstrap short-term rates and build initial forward rate curves for simulation. |
-| | `HW_GPU.py` / `LMM_GPU.py` | **Parallel Simulator**: Generates large-scale paths using optimized parameters. Accelerates Hull-White OU processes and LMM correlation structures via CUDA. |
-| | `LSM_pricer.py` | **Early Exercise Engine**: Performs Longstaff-Schwartz (LSM) least-squares regression within the GPU to determine optimal stopping and Bermudan value. |
+| **Data** | `Datahandler.py` | **Data Gateway**: Interfaces with ECOS and yfinance APIs. Extracts and refines time-series for volatility analysis and snapshot data for pricing. |
+| | `Volatility.py` | **Statistical Analysis Engine**: Runs GARCH(1,1) and EWMA models to estimate historical market volatility for optimization initial guesses. |
+| **Optimization** | `HW_cal.py` / `LMM_cal.py` | **Dual Calibrator**: Performs Gauss-Newton optimization targeting market Swaption prices to fit model parameters with market consistency. |
+| **Engine** | `Model_selection.py` | **Yield Curve Construction**: Uses QuantLib to bootstrap rate data and build initial forward rate curves for simulation. |
+| | `HW_GPU.py` / `LMM_GPU.py` | **Parallel Simulator**: Generates large-scale paths using optimized parameters. Accelerates Hull-White and LMM diffusion processes via CUDA. |
+| | `LSM_pricer.py` / `LSM_pricer_LMM.py` | **Early Exercise Engine**: Performs Longstaff-Schwartz (LSM) regression within the GPU. Determines optimal stopping for each specific model (HW, LMM). |
 | **Controller** | `main.py` | **Pipeline Orchestrator**: Executes the entire workflow (Data → Vol → Calibration → Pricing → Greeks) and generates the final risk report. |
 
 ---

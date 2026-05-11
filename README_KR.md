@@ -13,17 +13,15 @@
 
 | 레이어 | 파일명 | 상세 역할 |
 | :--- | :--- | :--- |
-| **Data** | `Datahandler.py` | **데이터 게이트웨이**: ECOS(한국은행) 및 yfinance API와 연동. 변동성 분석을 위한 시계열 리스트와 프라이싱을 위한 스냅샷 데이터를 동시에 추출 및 정제합니다. |
-| | `Volatility.py` | **통계 분석 엔진**: 수집된 시계열을 바탕으로 GARCH(1,1) 및 EWMA 모델을 구동. 시장의 역사적 변동성을 추정하여 최적화 루프의 시작점(Initial Guess)을 제공합니다. |
-| **Optimization** | `GPUOptHWPricer.py` | **배치 연산 커널**: CuPy RawKernel 기반. 최적화를 위해 수십 개의 파라미터 시나리오를 단 한 번의 GPU 호출로 병렬 처리하여 자코비안 계산 속도를 극대화합니다. |
-| | `HW_cal.py` / `LMM_cal.py` | **이중 켈리브레이터**: GPU 배치 엔진을 제어하여 시장의 Swaption 가격을 타겟으로 Gauss-Newton 최적화를 수행합니다. 모델 파라미터를 시장 정합성 있게 피팅합니다. |
-| **Engine** | `Model_selection.py` | **수익률 곡선 구축**: QuantLib을 사용하여 수집된 단기 금리들을 부트스트래핑(Bootstrapping)하고, 시뮬레이션에 필요한 초기 선도금리 곡선을 구축합니다. |
-| | `HW_GPU.py` / `LMM_GPU.py` | **병렬 시뮬레이터**: 최적화된 파라미터를 주입받아 대규모 경로(Path)를 생성합니다. Hull-White의 OU 과정과 LMM의 상관관계 구조를 CUDA로 가속합니다. |
-| | `LSM_pricer.py` | **조기행사 결정 엔진**: GPU 내에서 Longstaff-Schwartz (LSM) 최소자승 회귀 분석을 수행합니다. 최적 정지 시점을 결정하여 Bermudan 옵션의 최종 가치를 산출합니다. |
+| **Data** | `Datahandler.py` | **데이터 게이트웨이**: ECOS(한국은행) 및 yfinance API 연동. 변동성 분석을 위한 시계열과 프라이싱용 스냅샷 데이터를 추출 및 정제합니다. |
+| | `Volatility.py` | **통계 분석 엔진**: 수집된 시계열을 바탕으로 GARCH(1,1) 및 EWMA 모델 구동. 시장 역사적 변동성을 추정하여 최적화 초기값을 제공합니다. |
+| **Optimization** | `HW_cal.py` / `LMM_cal.py` | **이중 켈리브레이터**: 시장의 Swaption 가격을 타겟으로 Gauss-Newton 최적화를 수행하여 모델 파라미터를 시장 정합성 있게 피팅합니다. |
+| **Engine** | `Model_selection.py` | **수익률 곡선 구축**: QuantLib을 사용하여 수집된 금리 데이터를 부트스트래핑하고, 시뮬레이션에 필요한 초기 선도금리 곡선을 구축합니다. |
+| | `HW_GPU.py` / `LMM_GPU.py` | **병렬 시뮬레이터**: 최적화된 파라미터를 주입받아 대규모 경로(Path)를 생성합니다. Hull-White 및 LMM의 확산 과정을 CUDA로 가속합니다. |
+| | `LSM_pricer.py` / `LSM_pricer_LMM.py` | **조기행사 결정 엔진**: GPU 내에서 Longstaff-Schwartz(LSM) 회귀 분석을 수행합니다. 각 모델별(HW, LMM) 특성에 맞게 최적 정지 시점을 결정합니다. |
 | **Controller** | `main.py` | **파이프라인 오케스트레이터**: 전체 공정(Data → Vol → Calibration → Pricing → Greeks)을 통합 실행하고 최종 리스크 리포트를 생성합니다. |
 
 ---
-
 ## 데이터 분석 결과 (Final Risk Metrics)
 시장의 Swaption Target Price(125bp)에 모델을 최적화한 후 산출된 최종 리스크 리포트입니다.
 
