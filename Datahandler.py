@@ -23,28 +23,20 @@ class Datahandler:
             raise Exception('KR is for Korean market and US is for US market.')
 
     def fetch_from_yfinance(self):
-        # ECOS와 키 값을 맞추기 위한 매핑 딕셔너리
         tickers = {"1Y": "^IRX", "5Y": "^FVX", "10Y": "^TNX"}
         try:
-            # 1년치 시계열 수집
             df = yf.download(list(tickers.values()), period="1y", progress=False)
 
             if df.empty or 'Close' not in df:
                 raise ValueError("No data found")
 
-            # 1. 전체 시계열 데이터 확보 (Volatility용)
-            # ^TNX, ^IRX 등으로 되어있는 컬럼명을 10Y, 1Y 등으로 변경
             raw_series = df['Close'].ffill() / 100
 
-            # 티커 기호를 ECOS 스타일 키로 변경 (중요!)
             inv_tickers = {v: k for k, v in tickers.items()}  # {'^IRX': '1Y', ...}
             series_data = raw_series.rename(columns=inv_tickers)
 
-            # 2. 최신 금리 스냅샷 확보 (QuantLib용)
-            # 이제 series_data에는 '10Y', '5Y' 등의 키가 직접 들어있음
             snapshot = {k: float(series_data[k].iloc[-1]) for k in tickers.keys()}
 
-            # 3. 스냅샷(dict)과 전체 시계열(DataFrame) 리턴
             return snapshot, series_data
 
         except Exception as e:

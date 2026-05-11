@@ -64,28 +64,22 @@ def run_valuation_pipeline(country_code, api_key=None):
             results[name] = float(val.get())
         b, u, d, v = results['Base'], results['Up'], results['Dn'], results['Vega']
 
-        # 1. Delta (1bp 변동 시 % 변화량)
-        # (u - d) / 2는 1bp당 가격 변화를 의미함
         delta_1bp = (u - d) / 2
 
-        # 2. Gamma (곡률)
+
         gamma = (u - 2 * b + d) / (bump ** 2) * 0.0001
 
-        # 3. Vega (변동성 1% 상승 시 가격 변화량)
         vega = (v - b) * 100
 
-        # 4. Hedge Ratio (HR) - 핵심 수정 지점
-        # 분자: 옵션의 1bp 변동 금액
-        # 분모: 헤지 수단(Vanilla Swap)의 1bp 변동 금액 (4.5bp 가정 시 0.00045)
         vanilla_dv01 = 0.00045
         hr = delta_1bp / vanilla_dv01
 
         return {
-            "Val": b * 100,  # % 단위
-            "Delta": delta_1bp * 10000,  # bp 단위로 표시 (현업 관행)
+            "Val": b * 100,
+            "Delta": delta_1bp * 10000,
             "Gamma": gamma,
             "Vega": vega,
-            "HR": hr  # 비율 (0.3 ~ 0.8 수준)
+            "HR": hr
         }
 
     return {"HW": calculate_metrics("HW", hw_init, opt_sig_hw, opt_a),
