@@ -5,6 +5,7 @@ class GPULMMPricer:
         self.n_paths = int(n_paths)
         self.dt = cp.float32(dt)
         self.sigma = cp.float32(sigma)
+        self.sigma = cp.asarray(sigma, dtype=cp.float32)
         self.f0 = cp.asarray(initial_forwards, dtype=cp.float32)
         self.n_rates = len(self.f0)
         self.n_steps = int(horizon / dt)
@@ -35,3 +36,42 @@ class GPULMMPricer:
             all_paths.append(F.copy())
 
         return all_paths
+
+
+class GPULMMBatchPricer:
+    def __init__(self, n_paths=100000, n_steps=20, n_rates=20, dt=0.25):
+        self.n_paths, self.n_steps, self.n_rates, self.dt = n_paths, n_steps, n_rates, cp.float32(dt)
+        self.kernel = cp.RawKernel(r'''
+        extern "C" __global__ void generate_lmm_batch_paths(
+            float *paths, const float *f0_gpu, const float *rand_gpu, const float *sigma_matrix, 
+            float dt, int n_paths, int n_steps, int n_rates, int n_scenarios) 
+        {
+            int p_idx = blockIdx.x * blockDim.x + threadIdx.x;
+            int s_idx = blockIdx.y;
+            if (p_idx >= n_paths || s_idx >= n_scenarios) return;
+            float F[20]; 
+            for(int i=0; i < n_rates; i++) F[i] = f0_gpu[i];
+            for (int t = 0; t < n_steps; t++) {
+                for (int i = 0; i < n_rates; i++) {
+                    float sig = sigma_matrix[s_idx * n_rates + i];
+                    float z = rand_gpu[(t * n_paths * n_rates) + (p_idx * n_rates) + i];
+                    float drift_sum = 0.0f;
+                    for(int j=0; j <= i; j++) drift_sum += (dt * F[j]) / (1.0f + dt * F[j]);
+                    float drift = F[i] * (sig * sig) * drift_sum;
+                    F[i] = F[i] * expf((drift - 0.5f * sig * sig) * dt + sig * sqrtf(dt) * z);
+                    paths[(((s_idx * n_steps + t) * n_paths + p_idx) * n_rates) + i] = F[i];
+                }
+            }
+        }
+        ''', 'generate_lmm_batch_paths')
+
+    def generate_lmm_batch_paths(self, f0, sigma_list, seed=42):
+        n_scenarios = len(sigma_list)
+        f0_gpu, sig_gpu = cp.array(f0, dtype=cp.float32), cp.array(sigma_list, dtype=cp.float32)
+        cp.random.seed(seed)
+        rand_gpu = cp.random.standard_normal((self.n_steps, self.n_paths, self.n_rates), dtype=cp.float32)
+        paths_gpu = cp.zeros((n_scenarios, self.n_steps, self.n_paths, self.n_rates), dtype=cp.float32)
+        self.kernel(((self.n_paths+255)//256, n_scenarios), (256, 1),
+                    (paths_gpu, f0_gpu, rand_gpu, sig_gpu, self.dt, self.n_paths, self.n_steps, self.n_rates, n_scenarios))
+        return paths_gpu
+

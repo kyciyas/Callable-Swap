@@ -2,6 +2,7 @@ import pycuda.autoinit
 import pycuda.driver as cuda
 from pycuda.compiler import SourceModule
 import numpy as np
+import cupy as cp
 
 class GPUHullWhitePricer:
     def __init__(self, n_paths=100_000, n_steps=500, T=5.0, a=0.1, sigma=0.01):
@@ -80,3 +81,62 @@ class GPUHullWhitePricer:
         rand_gpu.free()
 
         return result_paths
+
+
+class GPUOptHWPricer:
+    def __init__(self, n_paths=100_000, n_steps=500, T=5.0):
+        self.n_paths = n_paths
+        self.n_steps = n_steps
+        self.dt = np.float32(T / n_steps)
+
+        self.kernel = cp.RawKernel(r'''
+        extern "C" __global__ void generate_opt_paths(
+            float *paths, float *fwd_gpu, float *rand_gpu, 
+            float *a_vec, float *sigma_vec, 
+            float dt, int n_paths, int n_steps, int n_scenarios) 
+        {
+            int path_idx = blockIdx.x * blockDim.x + threadIdx.x;
+            int sce_idx = blockIdx.y * blockDim.y + threadIdx.y;
+
+            if (path_idx >= n_paths || sce_idx >= n_scenarios) return;
+
+            float a = a_vec[sce_idx];
+            float sigma = sigma_vec[sce_idx];
+            float current_r = fwd_gpu[0]; // 초기 fwd 값 로드
+
+            int base_idx = (sce_idx * n_paths + path_idx) * n_steps;
+            paths[base_idx] = current_r;
+
+            const float s_sq_2a = (sigma * sigma) / (2.0f * a);
+            const float sqrt_dt = sqrtf(dt); // math.h 없이 작동함
+
+            for (int t = 1; t < n_steps; t++) {
+                float z = rand_gpu[path_idx * n_steps + t];
+                float time_t = t * dt;
+
+                // theta 계산 (linear interpolation 대용 단순화)
+                float theta = (fwd_gpu[t] - fwd_gpu[t-1]) / dt 
+                              + a * fwd_gpu[t] 
+                              + s_sq_2a * (1.0f - expf(-2.0f * a * time_t));
+
+                current_r += (theta - a * current_r) * dt + sigma * sqrt_dt * z;
+                paths[base_idx + t] = current_r;
+            }
+        }
+        ''', 'generate_opt_paths')
+
+    def generate_batch_paths(self, hw_input, a_list, sigma_list, seed=42):
+        n_scenarios = len(a_list)
+        fwd_gpu = cp.array(hw_input, dtype=cp.float32)
+        a_gpu = cp.array(a_list, dtype=cp.float32)
+        sigma_gpu = cp.array(sigma_list, dtype=cp.float32)
+
+        cp.random.seed(seed)
+        rand_gpu = cp.random.standard_normal(self.n_paths * self.n_steps, dtype=cp.float32)
+        paths_gpu = cp.zeros((n_scenarios, self.n_paths, self.n_steps), dtype=cp.float32)
+
+        self.kernel(((self.n_paths + 255) // 256, n_scenarios), (256, 1),
+                    (paths_gpu, fwd_gpu, rand_gpu, a_gpu, sigma_gpu,
+                     self.dt, self.n_paths, self.n_steps, n_scenarios))
+
+        return paths_gpu
