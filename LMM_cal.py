@@ -23,6 +23,6 @@ class GPULMMCalibrator:
             update = cp.linalg.solve(jacobian + cp.eye(n_params, dtype=cp.float32)*1e-2, errors)
             params -= lr * update
             params = cp.maximum(params, 0.01)
-            print(f" LMM Iter {i+1}: RMS Error = {cp.sqrt(cp.mean(errors**2)):.6f}")
+            # print(f" LMM Iter {i+1}: RMS Error = {cp.sqrt(cp.mean(errors**2)):.6f}")
             if cp.sqrt(cp.mean(errors**2)) < 1e-5: break
         return params.get()
