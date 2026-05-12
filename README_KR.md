@@ -3,27 +3,31 @@
 
 > **Language**: [English](./README.md) | [한국어]
 
-본 프로젝트는 입자물리학의 수치 시뮬레이션 기법을 금융 공학에 이식하여, 한국(KRW)과 미국(USD) 시장의 **Bermudan Callable Swap** 가치를 초고속으로 산출합니다. 통계적 변동성(GARCH) 분석과 시장가 피팅(Batch Calibration)을 결합하여, 단일 인자 모델(Hull-White)과 다요인 모델(LMM) 간의 **Model Risk**를 데이터로 실증합니다.
+- 한국(KRW)과 미국(USD) 시장의 **Bermudan Callable Swap** 가치를 GPGPU를 활용하여 고속으로 계산하는 것을 목적으로 함
+- GARCH 분석 및 Batch Calibration을 결합하여, Hull-White 모델과 LMM 모델의 Greeks 및 Hedge ratio를 계산함
 
 ---
 
 ## 프로젝트 구조 및 파일별 상세 역할
-시스템은 데이터 수집부터 GPU 커널 연산까지 4개의 레이어로 철저히 모듈화되어 있습니다.
+총 4개의 레이어로 구성되어 있으며, 데이터 수집, 최적화, 가격 계산 엔진, 실행파일로 구성되어 있음
 
 
-| 레이어 | 파일명 | 상세 역할 |
-| :--- | :--- | :--- |
-| **Data** | `Datahandler.py` | **데이터 게이트웨이**: ECOS(한국은행) 및 yfinance API 연동. 변동성 분석을 위한 시계열과 프라이싱용 스냅샷 데이터를 추출 및 정제합니다. |
-| | `Volatility.py` | **통계 분석 엔진**: 수집된 시계열을 바탕으로 GARCH(1,1) 및 EWMA 모델 구동. 시장 역사적 변동성을 추정하여 최적화 초기값을 제공합니다. |
-| **Optimization** | `HW_cal.py` / `LMM_cal.py` | **이중 켈리브레이터**: 시장의 Swaption 가격을 타겟으로 Gauss-Newton 최적화를 수행하여 모델 파라미터를 시장 정합성 있게 피팅합니다. |
-| **Engine** | `Model_selection.py` | **수익률 곡선 구축**: QuantLib을 사용하여 수집된 금리 데이터를 부트스트래핑하고, 시뮬레이션에 필요한 초기 선도금리 곡선을 구축합니다. |
-| | `HW_GPU.py` / `LMM_GPU.py` | **병렬 시뮬레이터**: 최적화된 파라미터를 주입받아 대규모 경로(Path)를 생성합니다. Hull-White 및 LMM의 확산 과정을 CUDA로 가속합니다. |
-| | `LSM_pricer.py` / `LSM_pricer_LMM.py` | **조기행사 결정 엔진**: GPU 내에서 Longstaff-Schwartz(LSM) 회귀 분석을 수행합니다. 각 모델별(HW, LMM) 특성에 맞게 최적 정지 시점을 결정합니다. |
-| **Controller** | `main.py` | **파이프라인 오케스트레이터**: 전체 공정(Data → Vol → Calibration → Pricing → Greeks)을 통합 실행하고 최종 리스크 리포트를 생성합니다. |
+| 레이어 | 파일명 | 상세 역할                                                                                                               |
+| :--- | :--- |:--------------------------------------------------------------------------------------------------------------------|
+| **Data** | `Datahandler.py` | **데이터 수집 및 처리**: ECOS(한국은행) 및 yfinance API를 이용하여 당일 1년, 5년 10년물의 10일분 데이터 수집. 가장 최근 스냅샷과 과거 데이터를 dictionary 형태로 반환. |
+| | `Volatility.py` | **통계 분석 엔진**: Datahandler에서 수집된 데이터를 기반으로 GARCH(1,1) 및 EWMA fitting 수행. 향후 최적화를 위한 초기값 생성.                          |
+| **Optimization** | `HW_cal.py` / `LMM_cal.py` | **이중 켈리브레이터**: 주어진 Swaption 가격을 기준으로 Gauss-Newton 최적화를 수행. 기본 행사가는 3.5%.                                            |
+| **Engine** | `Model_selection.py` | **수익률 곡선 구축**: QuantLib을 이용하여 yield curve를 부트스트래핑함.                                                                 |
+| | `HW_GPU.py` / `LMM_GPU.py` | **병렬 시뮬레이터**: 주어진 파라미터를 이용하여 이자율 경로 생성. Hull-White 및 LMM를 CUDA를 이용하여 계산.                                            |
+| | `LSM_pricer.py` / `LSM_pricer_LMM.py` | **조기행사 결정 엔진**: GPU 내에서 Longstaff-Schwartz(LSM) 수행.                                                                 |
+| **Controller** | `main.py` | **실행 파일**                                                                                                    |
+
+`Datahandler.py` → `Volatility.py` → `Model_selection.py` → `HW_cal.py / LMM_cal.py` → `HW_GPU.py / LMM_GPU.py` → `LSM_pricer.py / LSM_pricer_LMM.py`
 
 ---
 ## 데이터 분석 결과 (Final Risk Metrics)
-시장의 Swaption Target Price(125bp)에 모델을 최적화한 후 산출된 최종 리스크 리포트입니다.
+- 입력 데이터는 2026년 05월 11일 기준 ECOS와 yfinance의 1년, 5년 10년 국채의 10일분 데이터
+- 버뮤단 옵션은 행사가 3.5%에 목표가 1.25% 로 설정
 
 ### [KOREA REPORT (KRW)]
 

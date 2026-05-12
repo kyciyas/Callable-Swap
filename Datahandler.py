@@ -42,7 +42,6 @@ class Datahandler:
         except Exception as e:
             print(f"yfinance error: {e}. Using fallback rates.")
             fallback_rates = {"1Y": 0.048, "5Y": 0.042, "10Y": 0.043}
-            # 폴백 시에도 시계열 구조를 맞춰서 반환
             fallback_df = pd.DataFrame([fallback_rates], index=[datetime.now()])
             return fallback_rates, fallback_df
 

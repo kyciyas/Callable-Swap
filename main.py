@@ -15,7 +15,7 @@ import time
 import gc
 
 
-def run_valuation_pipeline(country_code, api_key=None):
+def run_valuation_pipeline(country_code, api_key=None, target_price=0.0125, strike_price=0.035):
     print(f"\n[INFO] {country_code} market engine is running...")
     handler = Datahandler.Datahandler(country=country_code)
     rates, rates_list = handler.fetch_from_ecos(
@@ -29,12 +29,12 @@ def run_valuation_pipeline(country_code, api_key=None):
     lmm_init = engine_temp.get_lmm_input(horizon=5.0, dt=0.25)
 
     # HW Calibration
-    hw_calib = HW_cal.GPUBatchCalibrator(HW_GPU.GPUOptHWPricer(n_paths=100_000), [0.0125], hw_init)
+    hw_calib = HW_cal.GPUBatchCalibrator(HW_GPU.GPUOptHWPricer(n_paths=100_000), [target_price], hw_init, strike=strike_price)
     opt_hw = hw_calib.run_optimization(init_s=float(rates['10Y']) * rel_sigma_garch)
     opt_a, opt_sig_hw = float(opt_hw[0]), float(opt_hw[1])
 
     # LMM Calibration
-    lmm_calib = LMM_cal.GPULMMCalibrator(LMM_GPU.GPULMMBatchPricer(n_paths=100_000, n_rates=len(lmm_init)), [0.0125] * len(lmm_init), lmm_init)
+    lmm_calib = LMM_cal.GPULMMCalibrator(LMM_GPU.GPULMMBatchPricer(n_paths=100_000, n_rates=len(lmm_init)), [target_price] * len(lmm_init), lmm_init,strike=strike_price)
     opt_sig_lmm = lmm_calib.run_lmm_optimization(init_sigmas=[rel_sigma_garch] * len(lmm_init))
 
     def calculate_metrics(model_type, init_rates, sigma_val, a_val=0.1):
@@ -45,9 +45,8 @@ def run_valuation_pipeline(country_code, api_key=None):
             if model_type == "HW":
                 s = (sigma_val + 0.01) if name == 'Vega' else sigma_val
                 pricer = HW_GPU.GPUHullWhitePricer(n_paths=100000, sigma=float(s), a=a_val)
-                raw_paths = pricer.generate_paths(
-                    np.array(init_rates, dtype=np.float32).flatten() + (shift if name != 'Vega' else 0))
-                lsm = LSM_pricer.GPULSMPricer(cp.asarray(raw_paths), 5.0 / 500, 0.035)
+                raw_paths = pricer.generate_paths(np.array(init_rates, dtype=np.float32).flatten() + (shift if name != 'Vega' else 0))
+                lsm = LSM_pricer.GPULSMPricer(cp.asarray(raw_paths), 5.0 / 500, strike=strike_price)
                 val = lsm.run_lsm_gpu(exercise_steps=[int((y / 5.0) * 500) for y in [1, 2, 3, 4]])
             else:
                 if isinstance(sigma_val, (np.ndarray, cp.ndarray)):
@@ -59,13 +58,12 @@ def run_valuation_pipeline(country_code, api_key=None):
                 curr_rates = np.array(init_rates, dtype=np.float32) + (shift if name != 'Vega' else 0)
 
                 pricer = LMM_GPU.GPULMMPricer(curr_rates, n_paths=100000, sigma=s_input)
-                val = LSM_pricer_LMM.GPULMM_LSMPricer(pricer.generate_lmm_paths(), 0.25, 0.035).run_lsm(exercise_steps=[4, 8, 12, 16])
+                val = LSM_pricer_LMM.GPULMM_LSMPricer(pricer.generate_lmm_paths(), 0.25, strike=strike_price).run_lsm(exercise_steps=[4, 8, 12, 16])
 
             results[name] = float(val.get())
         b, u, d, v = results['Base'], results['Up'], results['Dn'], results['Vega']
 
         delta_1bp = (u - d) / 2
-
 
         gamma = (u - 2 * b + d) / (bump ** 2) * 0.0001
 
@@ -89,7 +87,7 @@ def run_valuation_pipeline(country_code, api_key=None):
 if __name__ == "__main__":
     start = time.time()
     ecos_key = ""
-    res_kr = run_valuation_pipeline("KR", ecos_key)
+    # res_kr = run_valuation_pipeline("KR", ecos_key)
     res_us = run_valuation_pipeline("US")
     for c, r in [("KOREA", res_kr), ("USA", res_us)]:
         print(f"\n{c} REPORT\n{pd.DataFrame(r).round(4)}")

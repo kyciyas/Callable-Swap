@@ -20,7 +20,7 @@ class VolatilityEngine:
 
     def get_ewma_vol(self, lam: float = 0.94):
         if len(self.returns) < 2 or np.std(self.returns) == 0:
-            return 0.20  # 데이터 부족 시 기본 20%
+            return 0.20
 
         n = len(self.returns)
 
@@ -28,6 +28,7 @@ class VolatilityEngine:
         variance = np.sum(weights * (self.returns ** 2)) / np.sum(weights)
 
         daily_vol = np.sqrt(variance)
+
         return (daily_vol / 100) * np.sqrt(self.annualize_factor)
 
     def get_garch_vol(self):
@@ -42,6 +43,7 @@ class VolatilityEngine:
             current_daily_vol = res.conditional_volatility[-1] / scale
 
             annual_vol = (current_daily_vol / 100) * np.sqrt(self.annualize_factor)
+
             return annual_vol, res.params
         except:
             return self.get_ewma_vol(), None

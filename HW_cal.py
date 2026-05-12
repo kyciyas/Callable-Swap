@@ -3,14 +3,15 @@ import numpy as np
 
 
 class GPUBatchCalibrator:
-    def __init__(self, engine, target_prices, hw_input):
+    def __init__(self, engine, target_prices, hw_input, strike=0.035):
         self.engine = engine
         self.target_price = cp.array(target_prices, dtype=cp.float32)
         self.hw_input = hw_input
+        self.strike = strike
 
     def calculate_prices_gpu(self, batch_paths):
         r_at_expiry = batch_paths[:, :, -1]
-        payoffs = cp.maximum(r_at_expiry - 0.035, 0)
+        payoffs = cp.maximum(r_at_expiry - self.strike, 0)
         return cp.mean(payoffs, axis=1)
 
     def compute_gradient_batch(self, a, sigma):
@@ -18,7 +19,7 @@ class GPUBatchCalibrator:
         a_batch = [a, a + eps, a]
         sigma_batch = [sigma, sigma, sigma + eps]
 
-        # 경로 생성 및 가격 산출
+        # path and price
         batch_paths = self.engine.generate_batch_paths(self.hw_input, a_batch, sigma_batch)
         prices = self.calculate_prices_gpu(batch_paths)
 

@@ -1,13 +1,14 @@
 import cupy as cp
 
 class GPULMMCalibrator:
-    def __init__(self, engine, target_prices, f0):
+    def __init__(self, engine, target_prices, f0, strike = 0.035):
         self.engine, self.f0 = engine, f0
         self.target_prices = cp.array(target_prices, dtype=cp.float32)
+        self.strike = strike
 
     def calculate_prices_gpu(self, batch_paths):
         r_final = batch_paths[:, -1, :, :]
-        return cp.mean(cp.maximum(r_final - 0.035, 0), axis=1)
+        return cp.mean(cp.maximum(r_final - self.strike, 0), axis=1)
 
     def run_lmm_optimization(self, init_sigmas, max_iter=10):
         params = cp.array(init_sigmas, dtype=cp.float32)
