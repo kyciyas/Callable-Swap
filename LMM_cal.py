@@ -20,9 +20,9 @@ class GPULMMCalibrator:
             all_prices = self.calculate_prices_gpu(batch_paths)
             errors = all_prices[0] - self.target_prices
             jacobian = (all_prices[1:] - all_prices[0]) / eps
-            update = cp.linalg.solve(jacobian + cp.eye(n_params)*1e-6, errors)
+            update = cp.linalg.solve(jacobian + cp.eye(n_params, dtype=cp.float32)*1e-2, errors)
             params -= lr * update
             params = cp.maximum(params, 0.01)
-            # print(f" LMM Iter {i+1}: RMS Error = {cp.sqrt(cp.mean(errors**2)):.6f}")
+            print(f" LMM Iter {i+1}: RMS Error = {cp.sqrt(cp.mean(errors**2)):.6f}")
             if cp.sqrt(cp.mean(errors**2)) < 1e-5: break
         return params.get()

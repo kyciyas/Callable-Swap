@@ -65,6 +65,7 @@ def run_valuation_pipeline(country_code, api_key=None, target_price=0.0125, stri
 
         delta_1bp = (u - d) / 2
 
+
         gamma = (u - 2 * b + d) / (bump ** 2) * 0.0001
 
         vega = (v - b) * 100
@@ -86,8 +87,8 @@ def run_valuation_pipeline(country_code, api_key=None, target_price=0.0125, stri
 
 if __name__ == "__main__":
     start = time.time()
-    ecos_key = ""
-    # res_kr = run_valuation_pipeline("KR", ecos_key)
+    ecos_key = "W6TIRYNUV2V5KDXO3NZF"
+    res_kr = run_valuation_pipeline("KR", ecos_key)
     res_us = run_valuation_pipeline("US")
     for c, r in [("KOREA", res_kr), ("USA", res_us)]:
         print(f"\n{c} REPORT\n{pd.DataFrame(r).round(4)}")

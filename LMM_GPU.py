@@ -65,11 +65,28 @@ class GPULMMBatchPricer:
         }
         ''', 'generate_lmm_batch_paths')
 
-    def generate_lmm_batch_paths(self, f0, sigma_list, seed=42):
+    def generate_lmm_batch_paths(self, f0, sigma_list, seed=42, beta=1.5):
+        cp.random.seed(seed)
         n_scenarios = len(sigma_list)
         f0_gpu, sig_gpu = cp.array(f0, dtype=cp.float32), cp.array(sigma_list, dtype=cp.float32)
-        cp.random.seed(seed)
-        rand_gpu = cp.random.standard_normal((self.n_steps, self.n_paths, self.n_rates), dtype=cp.float32)
+
+        tenors = cp.arange(1, self.n_rates + 1) * self.dt
+        T_i, T_j = cp.meshgrid(tenors, tenors)
+        beta_gpu = cp.array(beta, dtype=cp.float32)
+        corr_matrix = cp.exp(-beta_gpu * cp.abs(T_i - T_j))
+        corr_matrix += cp.eye(self.n_rates, dtype=cp.float32) * 1e-6
+        L_raw = cp.linalg.cholesky(corr_matrix)
+
+        row_norms = cp.sqrt(cp.sum(L_raw ** 2, axis=1, keepdims=True))
+        L = L_raw / row_norms
+        rand_raw = cp.random.standard_normal((self.n_steps, self.n_paths, self.n_rates), dtype=cp.float32)
+        rand_correlated = cp.zeros_like(rand_raw)
+        for t in range(self.n_steps):
+            rand_correlated[t] = rand_raw[t] @ L.T
+        # rand_gpu = cp.einsum('lk,ijk->ijl', L, rand_raw)
+        rand_gpu = cp.ascontiguousarray(rand_correlated)
+        rand_gpu = rand_gpu.ravel()
+        # rand_gpu = cp.random.standard_normal((self.n_steps, self.n_paths, self.n_rates), dtype=cp.float32)
         paths_gpu = cp.zeros((n_scenarios, self.n_steps, self.n_paths, self.n_rates), dtype=cp.float32)
         self.kernel(((self.n_paths+255)//256, n_scenarios), (256, 1),
                     (paths_gpu, f0_gpu, rand_gpu, sig_gpu, self.dt, self.n_paths, self.n_steps, self.n_rates, n_scenarios))

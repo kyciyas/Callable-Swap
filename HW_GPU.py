@@ -125,12 +125,13 @@ class GPUOptHWPricer:
         ''', 'generate_opt_paths')
 
     def generate_batch_paths(self, hw_input, a_list, sigma_list, seed=42):
+        cp.random.seed(seed)
+
         n_scenarios = len(a_list)
         fwd_gpu = cp.array(hw_input, dtype=cp.float32)
         a_gpu = cp.array(a_list, dtype=cp.float32)
         sigma_gpu = cp.array(sigma_list, dtype=cp.float32)
 
-        cp.random.seed(seed)
         rand_gpu = cp.random.standard_normal(self.n_paths * self.n_steps, dtype=cp.float32)
         paths_gpu = cp.zeros((n_scenarios, self.n_paths, self.n_steps), dtype=cp.float32)
 
