@@ -29,12 +29,12 @@ def run_valuation_pipeline(country_code, api_key=None):
     lmm_init = engine_temp.get_lmm_input(horizon=5.0, dt=0.25)
 
     # HW Calibration
-    hw_calib = HW_cal.GPUBatchCalibrator(HW_GPU.GPUOptHWPricer(n_paths=100000), [0.0125], hw_init)
+    hw_calib = HW_cal.GPUBatchCalibrator(HW_GPU.GPUOptHWPricer(n_paths=100_000), [0.0125], hw_init)
     opt_hw = hw_calib.run_optimization(init_s=float(rates['10Y']) * rel_sigma_garch)
     opt_a, opt_sig_hw = float(opt_hw[0]), float(opt_hw[1])
 
     # LMM Calibration
-    lmm_calib = LMM_cal.GPULMMCalibrator(LMM_GPU.GPULMMBatchPricer(n_paths=100000, n_rates=len(lmm_init)), [0.0125] * len(lmm_init), lmm_init)
+    lmm_calib = LMM_cal.GPULMMCalibrator(LMM_GPU.GPULMMBatchPricer(n_paths=100_000, n_rates=len(lmm_init)), [0.0125] * len(lmm_init), lmm_init)
     opt_sig_lmm = lmm_calib.run_lmm_optimization(init_sigmas=[rel_sigma_garch] * len(lmm_init))
 
     def calculate_metrics(model_type, init_rates, sigma_val, a_val=0.1):

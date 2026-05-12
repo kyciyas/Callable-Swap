@@ -1,4 +1,4 @@
-# 🚀 GPU 가속 기반 멀티 모델 Callable Swap 통합 평가 및 최적화 엔진
+# GPU 가속 기반 멀티 모델 Callable Swap 통합 평가 및 최적화 엔진
 > **NVIDIA CUDA 기반 고성능 몬테카를로 시뮬레이션 및 이중 켈리브레이션 시스템**
 
 > **Language**: [English](./README.md) | [한국어]

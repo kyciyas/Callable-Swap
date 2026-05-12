@@ -102,19 +102,18 @@ class GPUOptHWPricer:
 
             float a = a_vec[sce_idx];
             float sigma = sigma_vec[sce_idx];
-            float current_r = fwd_gpu[0]; // 초기 fwd 값 로드
+            float current_r = fwd_gpu[0];
 
             int base_idx = (sce_idx * n_paths + path_idx) * n_steps;
             paths[base_idx] = current_r;
 
             const float s_sq_2a = (sigma * sigma) / (2.0f * a);
-            const float sqrt_dt = sqrtf(dt); // math.h 없이 작동함
+            const float sqrt_dt = sqrtf(dt);
 
             for (int t = 1; t < n_steps; t++) {
                 float z = rand_gpu[path_idx * n_steps + t];
                 float time_t = t * dt;
 
-                // theta 계산 (linear interpolation 대용 단순화)
                 float theta = (fwd_gpu[t] - fwd_gpu[t-1]) / dt 
                               + a * fwd_gpu[t] 
                               + s_sq_2a * (1.0f - expf(-2.0f * a * time_t));
