@@ -14,6 +14,8 @@ import pandas as pd
 import time
 import gc
 
+np.random.seed(42)
+cp.random.seed(42)
 
 def run_valuation_pipeline(country_code, api_key=None, target_price=0.0125, strike_price=0.035):
     print(f"\n[INFO] {country_code} market engine is running...")
@@ -87,7 +89,7 @@ def run_valuation_pipeline(country_code, api_key=None, target_price=0.0125, stri
 
 if __name__ == "__main__":
     start = time.time()
-    ecos_key = "W6TIRYNUV2V5KDXO3NZF"
+    ecos_key = ""
     res_kr = run_valuation_pipeline("KR", ecos_key)
     res_us = run_valuation_pipeline("US")
     for c, r in [("KOREA", res_kr), ("USA", res_us)]:
