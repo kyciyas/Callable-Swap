@@ -192,8 +192,7 @@ class Callableswap:
             if model_type == "HW":
                 s = (sigma_val + 0.01) if name == 'Vega' else sigma_val
                 pricer = HW_GPU.GPUHullWhitePricer(n_paths=self.n_paths, sigma=float(s), a=a_val)
-                raw_paths = pricer.generate_paths(
-                    np.array(init_rates, dtype=np.float32).flatten() + (shift if name != 'Vega' else 0))
+                raw_paths = pricer.generate_paths(np.array(init_rates, dtype=np.float32).flatten() + (shift if name != 'Vega' else 0), self.ois_list_hw)
                 lsm = LSM_pricer.GPULSMPricer(cp.asarray(raw_paths), self.ois_list_hw, self.years/self.steps, strike=self.strike_rate)
                 val = lsm.run_lsm_gpu(exercise_steps=self.hw_period)
             else:

@@ -21,6 +21,7 @@ class GPUHullWhitePricer:
             __global__ void generate_paths(
                 float *paths, 
                 float *fwd_gpu, 
+                float *bwd_gpu,
                 float *rand_gpu, 
                 float a, float sigma, float dt,
                 int n_paths, int n_steps) 
@@ -36,12 +37,14 @@ class GPUHullWhitePricer:
 
                 for (int t = 1; t < n_steps; t++) {
                     float z = rand_gpu[tid * n_steps + t];
-
                     float time_t = t * dt;
-                    float theta = (fwd_gpu[t] - fwd_gpu[t-1]) / dt 
-                                  + a * fwd_gpu[t] 
-                                  + s_sq_2a * (1.0f - expf(-2.0f * a * time_t));
-
+                
+                    float theta_base = (fwd_gpu[t] - fwd_gpu[t-1]) / dt + a * fwd_gpu[t] + s_sq_2a * (1.0f - expf(-2.0f * a * time_t));
+                
+                    float ois_fwd_t = -logf(bwd_gpu[t]) / time_t;
+                    float basis_spread = fwd_gpu[t] - ois_fwd_t;
+                    float theta = theta_base + a * basis_spread;
+                    
                     current_r += (theta - a * current_r) * dt + sigma * sqrt_dt * z;
                     paths[tid * n_steps + t] = current_r;
                 }
@@ -51,7 +54,7 @@ class GPUHullWhitePricer:
 
         self.func = self.mod.get_function("generate_paths")
 
-    def generate_paths(self, hw_input, seed=42):
+    def generate_paths(self, hw_input, bwd_gpu, seed=42):
         np.random.seed(seed)
         total_elements = self.n_paths * self.n_steps
         rand_data = np.random.standard_normal(total_elements).astype(np.float32)
@@ -59,12 +62,12 @@ class GPUHullWhitePricer:
 
         paths_gpu = cuda.mem_alloc(total_elements * 4)
         fwd_gpu = cuda.to_device(hw_input.astype(np.float32))
-
+        bwd_gpu = cuda.to_device(bwd_gpu.astype(np.float32))
         threads_per_block = 256
         blocks_per_grid = (self.n_paths + threads_per_block - 1) // threads_per_block
 
         try:
-            self.func(paths_gpu, fwd_gpu, rand_gpu,
+            self.func(paths_gpu, fwd_gpu, bwd_gpu, rand_gpu,
                       self.a, self.sigma, self.dt,
                       np.int32(self.n_paths), np.int32(self.n_steps),
                       block=(threads_per_block, 1, 1), grid=(blocks_per_grid, 1))
