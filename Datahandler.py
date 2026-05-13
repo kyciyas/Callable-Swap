@@ -141,6 +141,6 @@ class OisDataHandler:
                              ql.QuoteHandle(ql.SimpleQuote(latest_10y_rate)), overnight_index)
         ]
 
-        base_curve = ql.PiecewiseLogCubicDiscount(evaluation_date, ois_helpers, self.day_counter)
+        base_curve = ql.PiecewiseLogLinearDiscount(evaluation_date, ois_helpers, self.day_counter)
 
         return ql.RelinkableYieldTermStructureHandle(base_curve)
