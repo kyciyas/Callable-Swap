@@ -25,13 +25,13 @@ class InterestRateDataEngine:
         curve.enableExtrapolation()
         return curve
 
-    def get_hull_white_input(self, T=5.0, n_steps=500):
-        times = np.linspace(0, T, n_steps)
+    def get_hull_white_input(self, years=5.0, n_steps=500):
+        times = np.linspace(0, years, n_steps)
         fwd_rates = [self.yield_curve.forwardRate(t, t, ql.Continuous).rate() for t in times]
         return np.array(fwd_rates, dtype=np.float32)
 
-    def get_lmm_input(self, horizon=5.0, dt=0.25):
-        tenors = np.arange(0, horizon + dt, dt)
+    def get_lmm_input(self, years=5.0, dt=0.25):
+        tenors = np.arange(0, years + dt, dt)
         initial_forwards = []
         for i in range(len(tenors) - 1):
             fwd = self.yield_curve.forwardRate(tenors[i], tenors[i + 1], ql.Simple, ql.Annual).rate()

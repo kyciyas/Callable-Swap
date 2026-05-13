@@ -1,11 +1,11 @@
 # GPU 가속 기반 멀티 모델 Callable Swap 통합 평가 및 최적화 엔진
-> **NVIDIA CUDA 기반 고성능 몬테카를로 시뮬레이션 및 HW, LMM 최적화 시스템**
+> **NVIDIA CUDA 기반 고성능 몬테카를로 시뮬레이션 및 HW, LMM calibration 및 자산 평가 시스템**
 
 > **Language**: [English](./README.md) | [한국어]
 
-- 한국(KRW)과 미국(USD) 시장의 **Bermudan Callable Swap** 가치를 GPGPU를 활용하여 고속으로 계산하는 것을 목적으로 함
+- 한국(KRW)과 미국(USD) 시장의 **Bermudan Callable Swap**의 가치를 GPGPU를 활용하여 고속으로 계산하는 것을 목적으로 함
 - GARCH 분석 및 Batch Calibration을 결합하여, Hull-White 모델과 LMM 모델의 Greeks 및 Hedge ratio를 계산함
-- Longstaff-Schwartz (LSM)을 이용하여 가격을 결정하기 위한 변동성 값을 최적화
+- Longstaff-Schwartz (LSM) 알고리즘을 이용하여 최적 조기행사 경계(Optimal Exercise Boundary)를 산출하고 가격을 결정
 ---
 
 ## 프로젝트 구조 및 파일별 상세 역할
@@ -14,7 +14,7 @@
 
 | 레이어 | 파일명 | 상세 역할                                                                                                                                                                                                          |
 | :--- | :--- |:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Data** | `Datahandler.py` | **데이터 수집 및 처리**: ECOS(한국은행) 및 yfinance API를 이용하여 당일 1년, 5년 10년 국고채의 10일분 데이터 수집. 가장 최근 스냅샷과 과거 데이터를 dictionary 형태로 반환.                                                                                         |
+| **Data** | `Datahandler.py` | **데이터 수집 및 처리**: ECOS(한국은행) 및 yfinance API를 이용하여 당일 기준 1년, 5년 10년 만기 국고채(OIS 프록시)의 10일분 데이터 수집. 가장 최근 스냅샷과 과거 데이터를 dictionary 형태로 반환. 1Y, 5Y, 10Y 국고채 프록시 금리 데이터와 전일 KOFR 및 SOFR 초단기 금리를 이용하여 OIS curve 구현.    |
 | | `Volatility.py` | **통계 분석 엔진**: Datahandler에서 수집된 데이터를 기반으로 GARCH(1,1) 및 EWMA fitting 수행. 향후 최적화를 위한 초기값 생성.                                                                                                                     |
 | **Optimization** | `HW_cal.py` / `LMM_cal.py` | **이중 켈리브레이터**: 주어진 Swaption 가격을 기준으로 Gauss-Newton 최적화를 수행.                                                                                                                                                     |
 | **Engine** | `Model_selection.py` | **수익률 곡선 구축**: QuantLib을 이용하여 yield curve를 부트스트래핑함.                                                                                                                                                            |
@@ -79,7 +79,7 @@ negative convexity 를 확인 하였음
 #### 요약
 1. 미국 채권 시장이 한국 채권 시장에 비해서 유동성과 효율성이 높음을 확인하였음 (가격, 델타, 감마, HR)
 2. 시장 기준 스왑 금리를 기준으로 HW 모델은 채권 가격을 고평가, LMM은 저평가 하는 것이 확인되었음
-3. LMM은 테너별 변동성을 사전에 반영하여 HW에 비하여 낮은 베가값을 갖으며 변동성 대비 낮은 변화를 보임
+3. LMM은 테너별 변동성을 사전에 반영하여 HW에 비하여 낮은 베가값을 가지며 변동성 대비 낮은 변화를 보임
 4. HR로 미국 시장과 한국 시장의 유동성과 효율성 차이와 모델의 변동성 민감도를 전부 확인 할 수 있음
 5. LMM 에서 베타를 1.5로 사용하고 있으며 이는 일반적인 시장보다 높게 설정되어 있으며 이를 조정시 LMM 결과가 시장 기준 스왑 금리에 더 근접할 것으로 예상됨
 6. 단순히 하나의 모델만을 분석하는 것이 아니라 다양한 모델과 지표를 이용해야 함을 확인함
@@ -101,7 +101,7 @@ negative convexity 를 확인 하였음
 ---
 
 ## 모델의 한계점 및 향후 과제 (Limitation)
-*   **Proxy Data 사용**: 이론적으로는 버뮤단 swap 및 이자율 swap rate를 사용해야 하지만 오픈소스 구조상 국고채 proxy를 사용함
+*   **Proxy Data 사용**: 시장에서 거래되는 OIS 스왑 금리(OIS Swap Rate)를 입력값으로 사용해야 하나, 오픈소스 데이터(API)의 한계로 인해 국고채(KTB) 금리를 프록시(Proxy)로 대용하여 OIS 커브를 구축함.
 *   **Volatility Surface 미반영**: 행사가 (3.5%) 및 시장 기준 스왑 금리 (1.25%)를 직접 입력해야 하는 구조로 시장의 상품 특성을 자동으로 업데이트 할 필요성 존재. 
 *   **상관계수 모델의 임의적 선택**: LMM 내 테너 간 상관관계를 단순한 모형인 Rebonato Parametrization을 이용하며 beta 값에 대한 최적화 과정이 없음.
 *   **Single-Curve Framework**: Multi-Curve (OIS-Libor Basis) 부트스트래핑 적용이 필요함.

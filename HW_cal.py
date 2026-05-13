@@ -50,7 +50,7 @@ class GPUBatchCalibrator:
             a = max(a, 0.001)
             s = max(s, 0.0001)
 
-            # print(f" Iter {i + 1:2d}: a={a:.4f}, s={s:.4f}, Error={error:.6f}")
+            print(f" Iter {i + 1:2d}: a={a:.4f}, s={s:.4f}, Error={error:.6f}")
             if abs(error) < 1e-6: break
 
         return np.array([a, s])

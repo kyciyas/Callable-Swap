@@ -40,7 +40,10 @@ class GPULMMPricer:
 
 class GPULMMBatchPricer:
     def __init__(self, n_paths=100000, n_steps=20, n_rates=20, dt=0.25):
-        self.n_paths, self.n_steps, self.n_rates, self.dt = n_paths, n_steps, n_rates, cp.float32(dt)
+        self.n_paths = n_paths
+        self.n_steps = n_steps
+        self.n_rates = n_rates
+        self.dt = cp.float32(dt)
 
         self.kernel = cp.RawKernel(r'''
         extern "C" __global__ void generate_lmm_batch_paths(

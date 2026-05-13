@@ -1,0 +1,3 @@
+country_code,ecos_api,market_rate,strike_rate,years,steps,dt,n_paths
+KR,sample,0.0125,0.035,5,500,0.25,100000
+US,sample,0.0125,0.035,5,500,0.25,100000
