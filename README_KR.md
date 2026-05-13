@@ -26,7 +26,7 @@
 
 ---
 ## 데이터 분석 결과 (Final Risk Metrics)
-- 입력 데이터는 2026년 05월 11일 기준 ECOS와 yfinance의 1년, 5년 10년 국채의 10일분 데이터
+- 입력 데이터는 2026년 05월 11일 기준 ECOS와 yfinance의 1년, 5년 10년 스왑 금리의 10일분 데이터
 - 버뮤단 옵션은 행사가 3.5%에 현재 시장의 고정금리 1.25% 로 설정
 - Rebonato Parametrization 의 beta = 1.5 사용
 
@@ -69,7 +69,7 @@ negative convexity 를 확인 하였음
 3. 한국 시장과 미국 시장의 Gamma 범주는 각 (0.0339 to -0.6263), (-0.0142 to -0.2952)로 미국의 Gamma가 더 안정적이며 이 역시 미국 시장의
 금리 변동성이 더욱 안정적인 상황을 설명하여 줌
 4. 한국 시장과 미국 시장의 Vega 차이는 모델간 차이에 비하여 매우 작으며 이는 전술한 LMM이 테너별 변동성을 반영한 것에서 기인함
-5. 한국 시장의 HR는 미국 시장보다 약 200bp 정도 높으며 이는 미국 시장의 유동성과 델타 민감도에서 기인하는 것으로 판단됨
+5. 한국 시장의 HR는 미국 시장보다 약 0.02 정도 높으며 이는 미국 시장의 유동성과 델타 민감도에서 기인하는 것으로 판단됨
 
 <figure>
   <img src="./Comprehensive_Yield_Comparison.png" alt="Yield Curve Comparison">
@@ -101,6 +101,7 @@ negative convexity 를 확인 하였음
 ---
 
 ## 모델의 한계점 및 향후 과제 (Limitation)
-*   **Volatility Surface 미반영**: 행사가 (3.5%) 및 목표가 (1.25%)를 직접 입력해야 하는 구조로 시장의 상품 특성을 자동으로 업데이트 할 필요성 존재. 
+*   **Proxy Data 사용**: 이론적으로는 버뮤단 swap 및 이자율 swap rate를 사용해야 하지만 오픈소스 구조상 국고채 proxy를 사용함
+*   **Volatility Surface 미반영**: 행사가 (3.5%) 및 현재 시장의 고정금리 (1.25%)를 직접 입력해야 하는 구조로 시장의 상품 특성을 자동으로 업데이트 할 필요성 존재. 
 *   **상관계수 모델의 임의적 선택**: LMM 내 테너 간 상관관계를 단순한 모형인 Rebonato Parametrization을 이용하며 beta 값에 대한 최적화 과정이 없음.
 *   **Single-Curve Framework**: Multi-Curve (OIS-Libor Basis) 부트스트래핑 적용이 필요함.
