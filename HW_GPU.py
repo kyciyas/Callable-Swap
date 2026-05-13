@@ -91,7 +91,7 @@ class GPUOptHWPricer:
 
         self.kernel = cp.RawKernel(r'''
         extern "C" __global__ void generate_opt_paths(
-            float *paths, float *fwd_gpu, float *rand_gpu, 
+            float *paths, float *fwd_gpu, float *bwd_gpu, float *rand_gpu, 
             float *a_vec, float *sigma_vec, 
             float dt, int n_paths, int n_steps, int n_scenarios) 
         {
@@ -114,9 +114,12 @@ class GPUOptHWPricer:
                 float z = rand_gpu[path_idx * n_steps + t];
                 float time_t = t * dt;
 
-                float theta = (fwd_gpu[t] - fwd_gpu[t-1]) / dt 
-                              + a * fwd_gpu[t] 
-                              + s_sq_2a * (1.0f - expf(-2.0f * a * time_t));
+                float theta_base = (fwd_gpu[t] - fwd_gpu[t-1]) / dt  + a * fwd_gpu[t]  + s_sq_2a * (1.0f - expf(-2.0f * a * time_t));
+
+                float ois_fwd_t = -logf(bwd_gpu[t]) / (t * dt);
+                float basis_spread = fwd_gpu[t] - ois_fwd_t; 
+
+                float theta = theta_base + a * basis_spread;
 
                 current_r += (theta - a * current_r) * dt + sigma * sqrt_dt * z;
                 paths[base_idx + t] = current_r;
@@ -124,11 +127,12 @@ class GPUOptHWPricer:
         }
         ''', 'generate_opt_paths')
 
-    def generate_batch_paths(self, hw_input, a_list, sigma_list, seed=42):
+    def generate_batch_paths(self, hw_input, hw_ois, a_list, sigma_list, seed=42):
         cp.random.seed(seed)
 
         n_scenarios = len(a_list)
         fwd_gpu = cp.array(hw_input, dtype=cp.float32)
+        bwd_gpu = cp.array(hw_ois, dtype=cp.float32)
         a_gpu = cp.array(a_list, dtype=cp.float32)
         sigma_gpu = cp.array(sigma_list, dtype=cp.float32)
 
@@ -136,7 +140,7 @@ class GPUOptHWPricer:
         paths_gpu = cp.zeros((n_scenarios, self.n_paths, self.n_steps), dtype=cp.float32)
 
         self.kernel(((self.n_paths + 255) // 256, n_scenarios), (256, 1),
-                    (paths_gpu, fwd_gpu, rand_gpu, a_gpu, sigma_gpu,
+                    (paths_gpu, fwd_gpu, bwd_gpu, rand_gpu, a_gpu, sigma_gpu,
                      self.dt, self.n_paths, self.n_steps, n_scenarios))
 
         return paths_gpu

@@ -157,7 +157,7 @@ class Callableswap:
         return hw_curve, lmm_curve
 
     def vol_calibration(self, hw_curve, lmm_curve, rel_sigma_garch):
-        hw_calib = HW_cal.GPUBatchCalibrator(HW_GPU.GPUOptHWPricer(n_paths=self.n_paths), [self.market_rate], hw_curve, strike=self.strike_rate)
+        hw_calib = HW_cal.GPUBatchCalibrator(HW_GPU.GPUOptHWPricer(n_paths=self.n_paths), [self.market_rate], hw_curve, self.ois_list_hw, strike=self.strike_rate)
         opt_hw = hw_calib.run_optimization(init_s=float(self.rates['10Y']) * rel_sigma_garch)
         opt_a, opt_sig_hw = float(opt_hw[0]), float(opt_hw[1])
 
@@ -194,7 +194,7 @@ class Callableswap:
                 pricer = HW_GPU.GPUHullWhitePricer(n_paths=self.n_paths, sigma=float(s), a=a_val)
                 raw_paths = pricer.generate_paths(
                     np.array(init_rates, dtype=np.float32).flatten() + (shift if name != 'Vega' else 0))
-                lsm = LSM_pricer.GPULSMPricer(cp.asarray(raw_paths), 5.0 / 500, strike=self.strike_rate)
+                lsm = LSM_pricer.GPULSMPricer(cp.asarray(raw_paths), self.ois_list_hw, self.years/self.steps, strike=self.strike_rate)
                 val = lsm.run_lsm_gpu(exercise_steps=self.hw_period)
             else:
                 if isinstance(sigma_val, (np.ndarray, cp.ndarray)):
@@ -206,7 +206,7 @@ class Callableswap:
                 curr_rates = np.array(init_rates, dtype=np.float32) + (shift if name != 'Vega' else 0)
 
                 pricer = LMM_GPU.GPULMMPricer(curr_rates, n_paths=self.n_paths, sigma=s_input)
-                val = LSM_pricer_LMM.GPULMM_LSMPricer(pricer.generate_lmm_paths(), 0.25, strike=self.strike_rate).run_lsm(
+                val = LSM_pricer_LMM.GPULMM_LSMPricer(pricer.generate_lmm_paths(), self.dt , strike=self.strike_rate).run_lsm(
                     exercise_steps=self.lmm_period)
 
             results[name] = float(val.get())

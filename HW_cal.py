@@ -3,10 +3,11 @@ import numpy as np
 
 
 class GPUBatchCalibrator:
-    def __init__(self, engine, target_prices, hw_input, strike=0.035):
+    def __init__(self, engine, market_rate, hw_input, hw_ois, strike=0.035):
         self.engine = engine
-        self.target_price = cp.array(target_prices, dtype=cp.float32)
+        self.market_rate = cp.array(market_rate, dtype=cp.float32)
         self.hw_input = hw_input
+        self.hw_ois = hw_ois
         self.strike = strike
 
     def calculate_prices_gpu(self, batch_paths):
@@ -20,7 +21,7 @@ class GPUBatchCalibrator:
         sigma_batch = [sigma, sigma, sigma + eps]
 
         # path and price
-        batch_paths = self.engine.generate_batch_paths(self.hw_input, a_batch, sigma_batch)
+        batch_paths = self.engine.generate_batch_paths(self.hw_input, self.hw_ois, a_batch, sigma_batch)
         prices = self.calculate_prices_gpu(batch_paths)
 
         p_base = float(prices[0])
@@ -35,7 +36,7 @@ class GPUBatchCalibrator:
     def run_optimization(self, init_a=0.1, init_s=0.01, max_iter=15):
         a = float(init_a)
         s = float(init_s)
-        target = float(self.target_price[0])
+        target = float(self.market_rate[0])
         lr = 0.5
 
         print(f"\n[CALIBRATION] Starting... Target: {target:.6f}, Initial Sigma: {s:.6f}")
