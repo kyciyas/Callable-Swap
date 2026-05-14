@@ -33,27 +33,19 @@ class Callableswap:
         self.n_paths = 100_000
         self.load_parameters_from_csv()
         self.ois = 0.035
+        self.hw_curve = []
+        self.lmm_curve = []
         self.ois_list_hw = []
         self.ois_list_lmm = []
+        self.hw_period = []
+        self.lmm_period = []
+        self.rates = 0.0
+        self.rates_list = {}
 
         ##### random seed fix #####
         np.random.seed(42)
         cp.random.seed(42)
 
-        ##### gather rates data #####
-        self.rates = 0.0
-        self.rates_list = {}
-        self.rate_data_handler = Datahandler.Datahandler(country=self.country_code)
-        self.gather_rate_data()
-
-        ##### load OIS curve #####
-        self.ois_data_handler = Datahandler.OisDataHandler(tag=self.country_code, rates_dict=self.rates_list)
-        self.gather_OIS_data()
-        self.make_ois_curve()
-
-        ##### vol calculation engine setup #####
-        self.vol_engine = Volatility.VolatilityEngine(data=self.rates_list['10Y'])
-        self.hw_period, self.lmm_period = self.get_exercise_steps()
 
     def load_parameters_from_csv(self, file_path="input.csv"):
         if not os.path.exists(file_path):
@@ -144,25 +136,19 @@ class Callableswap:
 
         self.ois_list_lmm = vectorized_discount(lmm_time_array).astype(np.float32)
 
-    def calculate_vol(self):
-        rel_sigma_garch = self.vol_engine.get_comparison_report()['garch']
-
-        return rel_sigma_garch
-
     def model_init(self):
-        yield_curve = Model_selection.InterestRateDataEngine(self.rates, self.rate_data_handler.calendar, self.rate_data_handler.settlement_days)
-        hw_curve = yield_curve.get_hull_white_input(years=self.years, n_steps=self.steps)
-        lmm_curve = yield_curve.get_lmm_input(years=self.years, dt=self.dt)
+        yield_curve = Model_selection.InterestRateDataEngine(self.rates, self.rate_data_handler.calendar, self.rate_data_handler.settlement_days, years=self.years, steps=self.steps, dt=self.dt)
+        self.hw_curve = yield_curve.get_hull_white_input()
+        self.lmm_curve = yield_curve.get_lmm_input()
 
-        return hw_curve, lmm_curve
-
-    def vol_calibration(self, hw_curve, lmm_curve, rel_sigma_garch):
-        hw_calib = HW_cal.GPUBatchCalibrator(HW_GPU.GPUOptHWPricer(n_paths=self.n_paths), [self.market_rate], hw_curve, self.ois_list_hw, strike=self.strike_rate)
-        opt_hw = hw_calib.run_optimization(init_s=float(self.rates['10Y']) * rel_sigma_garch)
+    def vol_calibration(self):
+        price_engine = HW_GPU.GPUOptHWPricer(hw_input= self.hw_curve, hw_ois=self.ois_list_hw, n_paths=self.n_paths)
+        hw_calib = HW_cal.GPUBatchCalibrator(price_engine, market_rate = [self.market_rate], hw_input = self.hw_curve, hw_ois = self.ois_list_hw, strike=self.strike_rate, init_s=float(self.rates['10Y']) * self.rel_sigma_garch)
+        opt_hw = hw_calib.run_optimization()
         opt_a, opt_sig_hw = float(opt_hw[0]), float(opt_hw[1])
 
-        lmm_calib = LMM_cal.GPULMMCalibrator(LMM_GPU.GPULMMBatchPricer(n_paths=self.n_paths, n_rates=len(lmm_curve)), [self.market_rate] * len(lmm_curve), lmm_curve, strike=self.strike_rate)
-        opt_sig_lmm = lmm_calib.run_lmm_optimization(init_sigmas=[rel_sigma_garch] * len(lmm_curve))
+        lmm_calib = LMM_cal.GPULMMCalibrator(LMM_GPU.GPULMMBatchPricer(n_paths=self.n_paths, n_rates=len(self.lmm_curve)), [self.market_rate] * len(self.lmm_curve), self.lmm_curve, strike=self.strike_rate)
+        opt_sig_lmm = lmm_calib.run_lmm_optimization(init_sigmas=[self.rel_sigma_garch] * len(self.lmm_curve))
 
         return opt_a, opt_sig_hw, opt_sig_lmm
 
@@ -175,11 +161,8 @@ class Callableswap:
         while current_y < self.years:
             exercise_years.append(current_y)
             current_y += frequency
-
-        hw_steps = [int((y / self.years) * self.steps) for y in exercise_years]
-        lmm_steps = [int(y / self.dt) for y in exercise_years]
-
-        return hw_steps, lmm_steps
+        self.hw_period = [int((y / self.years) * self.steps) for y in exercise_years]
+        self.lmm_period = [int(y / self.dt) for y in exercise_years]
 
     def calculate_metrics(self, model_type, init_rates, sigma_val, a_val=0.1):
         results = {}
@@ -193,8 +176,8 @@ class Callableswap:
                 s = (sigma_val + 0.01) if name == 'Vega' else sigma_val
                 pricer = HW_GPU.GPUHullWhitePricer(n_paths=self.n_paths, sigma=float(s), a=a_val)
                 raw_paths = pricer.generate_paths(np.array(init_rates, dtype=np.float32).flatten() + (shift if name != 'Vega' else 0), self.ois_list_hw)
-                lsm = LSM_pricer.GPULSMPricer(cp.asarray(raw_paths), self.ois_list_hw, self.years/self.steps, strike=self.strike_rate)
-                val = lsm.run_lsm_gpu(exercise_steps=self.hw_period)
+                lsm = LSM_pricer.GPULSMPricer(cp.asarray(raw_paths), self.ois_list_hw, self.years/self.steps, strike=self.strike_rate, exercise_steps=self.hw_period)
+                val = lsm.run_lsm_gpu()
             else:
                 if isinstance(sigma_val, (np.ndarray, cp.ndarray)):
                     s_scalar = float(cp.mean(cp.asarray(sigma_val)))
@@ -229,14 +212,27 @@ class Callableswap:
 
     def run(self):
         print(f"\n[EXECUTE] {self.country_code} 파이프라인 연산을 시작합니다.")
+        ##### gather rates data #####
+        self.rate_data_handler = Datahandler.Datahandler(country=self.country_code)
+        self.gather_rate_data()
 
-        rel_sigma_garch = self.calculate_vol()
-        hw_curve, lmm_curve = self.model_init()
-        opt_a, opt_sig_hw, opt_sig_lmm = self.vol_calibration(hw_curve=hw_curve, lmm_curve=lmm_curve, rel_sigma_garch=rel_sigma_garch)
+        ##### load OIS curve #####
+        self.ois_data_handler = Datahandler.OisDataHandler(tag=self.country_code, rates_dict=self.rates_list)
+        self.gather_OIS_data()
+        self.make_ois_curve()
+
+        ##### vol calculation engine setup #####
+        self.vol_engine = Volatility.VolatilityEngine(data=self.rates_list['10Y'])
+        self.get_exercise_steps()
+        self.rel_sigma_garch = self.vol_engine.get_comparison_report()['garch']
+
+        self.model_init()
+
+        opt_a, opt_sig_hw, opt_sig_lmm = self.vol_calibration()
 
         metrics_report = {
-            "HW": self.calculate_metrics("HW", hw_curve, opt_sig_hw, opt_a),
-            "LMM": self.calculate_metrics("LMM", lmm_curve, opt_sig_lmm)
+            "HW": self.calculate_metrics("HW", self.hw_curve, opt_sig_hw, opt_a),
+            "LMM": self.calculate_metrics("LMM", self.lmm_curve, opt_sig_lmm)
         }
 
         return metrics_report

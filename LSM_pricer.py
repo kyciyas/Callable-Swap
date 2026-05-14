@@ -1,11 +1,12 @@
 import cupy as cp
 
 class GPULSMPricer:
-    def __init__(self, paths_gpu, bwd_gpu, dt, strike):
+    def __init__(self, paths_gpu, bwd_gpu, dt, strike, exercise_steps):
         self.paths = cp.asarray(paths_gpu, dtype=cp.float32)
         self.dt = cp.float32(dt)
         self.strike = cp.float32(strike)
         self.bwd_gpu = cp.asarray(bwd_gpu, dtype=cp.float32)
+        self.exercise_steps = exercise_steps
 
     def compute_swap_matrix_gpu(self):
         p_count = int(self.paths.shape[0])
@@ -19,7 +20,7 @@ class GPULSMPricer:
             swap_values[:, t] = payoff + df * swap_values[:, t + 1]
         return swap_values
 
-    def run_lsm_gpu(self, exercise_steps):
+    def run_lsm_gpu(self):
         swap_matrix = self.compute_swap_matrix_gpu()
         p_count = int(self.paths.shape[0])
         s_count = int(self.paths.shape[1])
@@ -28,7 +29,7 @@ class GPULSMPricer:
 
         current_t = s_count - 1
 
-        for t in sorted(exercise_steps, reverse=True):
+        for t in sorted(self.exercise_steps, reverse=True):
             if t >= self.paths.shape[1] - 1 or t == 0: continue
 
             df = self.bwd_gpu[current_t] / self.bwd_gpu[t]

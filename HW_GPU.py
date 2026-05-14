@@ -5,11 +5,11 @@ import numpy as np
 import cupy as cp
 
 class GPUHullWhitePricer:
-    def __init__(self, n_paths=100_000, n_steps=500, T=5.0, a=0.1, sigma=0.01):
+    def __init__(self, n_paths=100_000, n_steps=500, years=5.0, a=0.1, sigma=0.01):
         self.n_paths = n_paths
         self.n_steps = n_steps
-        self.T = T
-        self.dt = np.float32(T / n_steps)
+        self.years = years
+        self.dt = np.float32(self.years / n_steps)
         self.a = np.float32(a)
         self.sigma = np.float32(sigma)
 
@@ -87,10 +87,14 @@ class GPUHullWhitePricer:
 
 
 class GPUOptHWPricer:
-    def __init__(self, n_paths=100_000, n_steps=500, T=5.0):
+    def __init__(self, hw_input, hw_ois, n_paths=100_000, n_steps=500, years=5.0,  seed=42):
+        cp.random.seed(seed)
         self.n_paths = n_paths
         self.n_steps = n_steps
-        self.dt = np.float32(T / n_steps)
+        self.years = years
+        self.dt = np.float32(self.years / self.n_steps)
+        self.fwd_gpu = hw_input
+        self.bwd_gpu = hw_ois
 
         self.kernel = cp.RawKernel(r'''
         extern "C" __global__ void generate_opt_paths(
@@ -119,7 +123,7 @@ class GPUOptHWPricer:
 
                 float theta_base = (fwd_gpu[t] - fwd_gpu[t-1]) / dt  + a * fwd_gpu[t]  + s_sq_2a * (1.0f - expf(-2.0f * a * time_t));
 
-                float ois_fwd_t = -logf(bwd_gpu[t]) / (t * dt);
+                float ois_fwd_t = -logf(bwd_gpu[t]/bwd_gpu[t-1]) / (t * dt);
                 float basis_spread = fwd_gpu[t] - ois_fwd_t; 
 
                 float theta = theta_base + a * basis_spread;
@@ -130,12 +134,10 @@ class GPUOptHWPricer:
         }
         ''', 'generate_opt_paths')
 
-    def generate_batch_paths(self, hw_input, hw_ois, a_list, sigma_list, seed=42):
-        cp.random.seed(seed)
-
+    def generate_batch_paths(self, a_list, sigma_list):
         n_scenarios = len(a_list)
-        fwd_gpu = cp.array(hw_input, dtype=cp.float32)
-        bwd_gpu = cp.array(hw_ois, dtype=cp.float32)
+        fwd_gpu = cp.array(self.fwd_gpu, dtype=cp.float32)
+        bwd_gpu = cp.array(self.bwd_gpu, dtype=cp.float32)
         a_gpu = cp.array(a_list, dtype=cp.float32)
         sigma_gpu = cp.array(sigma_list, dtype=cp.float32)
 

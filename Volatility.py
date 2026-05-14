@@ -7,7 +7,7 @@ warnings.filterwarnings("ignore")
 
 
 class VolatilityEngine:
-    def __init__(self, data, annualize_factor: int = 252):
+    def __init__(self, data, annualize_factor: int = 252, lam = 0.94):
         arr = np.array(data, dtype=np.float64)
         arr = arr[arr > 0]
 
@@ -17,14 +17,15 @@ class VolatilityEngine:
             self.returns = np.diff(np.log(arr)) * 100
 
         self.annualize_factor = annualize_factor
+        self.lam = lam
 
-    def get_ewma_vol(self, lam: float = 0.94):
+    def get_ewma_vol(self):
         if len(self.returns) < 2 or np.std(self.returns) == 0:
             return 0.20
 
         n = len(self.returns)
 
-        weights = (1 - lam) * (lam ** np.arange(n)[::-1])
+        weights = (1 - self.lam) * (self.lam ** np.arange(n)[::-1])
         variance = np.sum(weights * (self.returns ** 2)) / np.sum(weights)
 
         daily_vol = np.sqrt(variance)
