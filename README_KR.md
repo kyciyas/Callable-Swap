@@ -50,13 +50,17 @@
 | $\sigma$ | Volatility           | 단기금리 변동성     | 단기금리에 가해지는 무작위 충격의 크기를 조절하는 상수. 금리 옵션(Swaption, Cap/Floor)의 가격 결정 주요 요인.                                                          |
 | $\theta(t)$ | Drift Term           | 결정론적 드리프트 함수 | 시간이 지남에 따라 변하는 시간 의존적 함수(Time-dependent function). 현재 시장에 형성된 초기 이자율 가치 구조(Yield Curve)를 모델이 완벽하게 복제(Exact Calibration)할 수 있도록 함. |
 
-#### Multi curve
-- **Model**: $F_M(t; T_1, T_2) = \mathbb{E}^{\mathbb{Q}^{T_2}} \left[ L(T_1, T_2) \mid \mathcal{F}_t \right]$
-- **Discount factor**: $P_D(t,T) = A_D(t,T)\exp(-B_D(t,T)r_t^D)$ 이며 이는 할인(OIS) 단기금리($r_t^D$)를 이용하여 계산함
-- **
-- **Forward rate**: $F(t; T_1, T_2) = \frac{1}{\tau} \left( \frac{P(t,T_1)}{P(t,T_2)} - 1 \right)$
+#### Multi curve (실제 구현)
+- 단일 커브 환경에서 현재 시장의 준거 금리 곡선(예: 3M CD 선도금리)인 ($f_F(0,t)$)를 모형이 완벽하게 복제(Exact Calibration)하기 위해 요구되는 결정론적 기초 드리프트 항$$\theta_{base}(t) = \frac{\partial f_F(0, t)}{\partial t} + a f_F(0, t) + \frac{\sigma^2}{2a}\left( 1 - e^{-2at} \right)$$
+- 연속 복리(Continuous Compounding) 체계 하에서 무위험 할인 채권 가격 테이블 ($P_D(0,t)$)로부터 각 타임스텝 ($\Delta t \cdot (t-1), \Delta t \cdot t$) 구간에 내재된 순수 무위험 순간 선도금리 ($f_D(0,t)$)를 역산 $$f_D(0, t) = -\frac{1}{\Delta t} \ln \left( \frac{P_D(0, t)}{P_D(0, t-\Delta t)} \right)$$
+- 시장의 예측 준거 금리(CD 3M 등)와 무위험 할인 금리(KOFR/OIS 등) 사이의 격차인 신용 및 유동성 테너 베이시스 스프레드를 시점별로 추출$$\Delta(t) = f_F(0, t) - f_D(0, t)$$
+- 단기금리 시뮬레이션의 기준축을 예측 커브가 아닌 무위험 할인 단기금리 ($r_{t}^{D}$) 과정으로 정렬하기 위한 최종 보정 $$\theta(t) = \theta_{base}(t) + a \Delta(t) = \frac{\partial f_F(0, t)}{\partial t} + a f_D(0, t) + \frac{\sigma^2}{2a}\left( 1 - e^{-2at} \right)$$
+- 오일러-마루야마(Euler-Maruyama) 이산화 기법을 사용하여 다음 타임스텝의 무위험 할인 단기금리 경로를 무작위로 전개$$r_{t+\Delta t}^D = r_t^D + \left( \theta(t) - a r_t^D \right) \Delta t + \sigma \sqrt{\Delta t} Z_t$$
 
-## 데이터 분석 결과 (Final Risk Metrics)
+### Libor Market Model
+#### Single curve
+
+## 데이터 분석 결과 (Final Risk Metrics) ~~향후 수정 예정 (single curve 기반의 과거 데이터)~~
 - 입력 데이터는 2026년 05월 11일 기준 ECOS와 yfinance의 1년, 5년 10년 국고채의 10일분 데이터
 - 버뮤단 옵션은 행사가 3.5%에 시장 기준 스왑 금리 1.25% 로 설정
 - Rebonato Parametrization 의 beta = 1.5 사용

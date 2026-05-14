@@ -123,7 +123,7 @@ class GPUOptHWPricer:
 
                 float theta_base = (fwd_gpu[t] - fwd_gpu[t-1]) / dt  + a * fwd_gpu[t]  + s_sq_2a * (1.0f - expf(-2.0f * a * time_t));
 
-                float ois_fwd_t = -logf(bwd_gpu[t]/bwd_gpu[t-1]) / (t * dt);
+                float ois_fwd_t = -logf(bwd_gpu[t]/bwd_gpu[t-1]) / dt;
                 float basis_spread = fwd_gpu[t] - ois_fwd_t; 
 
                 float theta = theta_base + a * basis_spread;
