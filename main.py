@@ -178,12 +178,7 @@ class Callableswap:
                 lsm = LSM_pricer.GPULSMPricer(cp.asarray(raw_paths), self.ois_list_hw, self.years/self.steps, strike=self.strike_rate, exercise_steps=self.hw_period)
                 val = lsm.run_lsm_gpu()
             else:
-                if isinstance(sigma_val, (np.ndarray, cp.ndarray)):
-                    s_scalar = float(cp.mean(cp.asarray(sigma_val)))
-                else:
-                    s_scalar = float(sigma_val)
-
-                s_input = (s_scalar + 0.05) if name == 'Vega' else s_scalar
+                s_input = (sigma_val + 0.05) if name == 'Vega' else sigma_val
                 curr_rates = np.array(init_rates, dtype=np.float32) + (shift if name != 'Vega' else 0)
 
                 pricer = LMM_GPU.GPULMMPricer(curr_rates, self.ois_list_lmm, beta=beta, n_paths=self.n_paths, sigma=s_input)

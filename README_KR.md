@@ -6,6 +6,7 @@
 - 한국(KRW)과 미국(USD) 시장의 **Bermudan Callable Swap**의 가치를 GPGPU를 활용하여 고속으로 계산하는 것을 목적으로 함
 - GARCH 분석 및 Batch Calibration을 결합하여, Hull-White 모델과 LMM 모델의 Greeks 및 Hedge ratio를 계산함
 - Longstaff-Schwartz (LSM) 알고리즘을 이용하여 최적 조기행사 경계(Optimal Exercise Boundary)를 산출하고 가격을 결정
+- 프록시를 이용한 multi curve 도입
 ---
 
 ## 프로젝트 구조 및 파일별 상세 역할
@@ -25,6 +26,36 @@
 `Datahandler.py` → `Volatility.py` → `Model_selection.py` → `HW_cal.py / LMM_cal.py` → `HW_GPU.py / LMM_GPU.py` → `LSM_pricer.py / LSM_pricer_LMM.py`
 
 ---
+## Multi-Curve Pricing 적용
+
+### 이론적 배경
+- Single curve는 미래 현금 흐름을 예측하는 Forward curve 와 이를 현재 가치로 계산하는 Discount curve를 같다고 간주함 (Libor가 risk free rate)
+- 2008년 금융 위기 이후 대형 은행의 파산으로 인하여 은행간 신용 위험 (credit risk)와 자금의 유동성 위험 (liquidity risk) 발생
+- 이로 인하여 tenor basis가 확대되었으며, 무차익거래 조건이 성립하지 않음으로서 multi curve 도입이 필요해짐
+
+### Swaption에 multi-curve framework 적용이 필요한 이유
+- **헤지 비용의 기준**: 무담보 Callable Swap 매도 후 청산소(CCP)에서 반대 포지션을 구축할 때, 헤지 포트폴리오의 조달 비용은 담보부 무위험 금리(OIS/KOFR/SOFR)를 따름
+- **현금흐름의 기준**: 스왑 계약서상 변동금리(Floating Leg) 지급 조건은 신용/유동성 위험을 포함한 준거 금리(3M Libor/91일 CD)의 Forward 커브를 따름
+- **평가 방법론**: 따라서 복제 가치와 준거 인덱스의 특성을 모두 반영하기 위해, Forward 커브로 예측한 미래 현금흐름을 OIS 커브로 할인하는 멀티 커브 프라이싱이 필수적임
+
+### Hull-White 모델
+#### Single curve
+- **Model**: $dr_t = \left( \theta(t) - a r_t \right) dt + \sigma dW_t$
+- **Discount factor**: $P(t,T) = A(t,T) \exp\left(-B(t,T)r_t\right)$
+- **Forward rate**: $F(t; T_1, T_2) = \frac{1}{\tau} \left( \frac{P(t,T_1)}{P(t,T_2)} - 1 \right)$
+
+| 파라미터 기호 | 영문 명칭                | 국문 명칭        | 주요 역할 및 성격                                                                                                                        |
+| :---: |:---------------------|:-------------|:----------------------------------------------------------------------------------------------------------------------------------|
+| $a$ | Mean Reversion Speed | 평균 회귀 속도     | 단기금리가 장기 평균 수준($\theta(t)/a$)으로 되돌아오는 속도를 결정하는 상수. 값이 클수록 금리가 평균으로 강하게 끌려가며 미래 금리의 변동 범위가 작아짐.                                    |
+| $\sigma$ | Volatility           | 단기금리 변동성     | 단기금리에 가해지는 무작위 충격의 크기를 조절하는 상수. 금리 옵션(Swaption, Cap/Floor)의 가격 결정 주요 요인.                                                          |
+| $\theta(t)$ | Drift Term           | 결정론적 드리프트 함수 | 시간이 지남에 따라 변하는 시간 의존적 함수(Time-dependent function). 현재 시장에 형성된 초기 이자율 가치 구조(Yield Curve)를 모델이 완벽하게 복제(Exact Calibration)할 수 있도록 함. |
+
+#### Multi curve
+- **Model**: $F_M(t; T_1, T_2) = \mathbb{E}^{\mathbb{Q}^{T_2}} \left[ L(T_1, T_2) \mid \mathcal{F}_t \right]$
+- **Discount factor**: $P_D(t,T) = A_D(t,T)\exp(-B_D(t,T)r_t^D)$ 이며 이는 할인(OIS) 단기금리($r_t^D$)를 이용하여 계산함
+- **
+- **Forward rate**: $F(t; T_1, T_2) = \frac{1}{\tau} \left( \frac{P(t,T_1)}{P(t,T_2)} - 1 \right)$
+
 ## 데이터 분석 결과 (Final Risk Metrics)
 - 입력 데이터는 2026년 05월 11일 기준 ECOS와 yfinance의 1년, 5년 10년 국고채의 10일분 데이터
 - 버뮤단 옵션은 행사가 3.5%에 시장 기준 스왑 금리 1.25% 로 설정
