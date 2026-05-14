@@ -133,7 +133,6 @@ class Callableswap:
 
         n_lmm_grids = int(self.years / self.dt)
         lmm_time_array = np.arange(0, n_lmm_grids + 1) * self.dt
-
         self.ois_list_lmm = vectorized_discount(lmm_time_array).astype(np.float32)
 
     def model_init(self):
@@ -146,8 +145,8 @@ class Callableswap:
         hw_calib = HW_cal.GPUBatchCalibrator(price_engine, market_rate = [self.market_rate], hw_input = self.hw_curve, hw_ois = self.ois_list_hw, strike=self.strike_rate, init_s=float(self.rates['10Y']) * self.rel_sigma_garch)
         opt_hw = hw_calib.run_optimization()
         opt_a, opt_sig_hw = float(opt_hw[0]), float(opt_hw[1])
-
-        lmm_calib = LMM_cal.GPULMMCalibrator(LMM_GPU.GPULMMBatchPricer(n_paths=self.n_paths, n_rates=len(self.lmm_curve)), [self.market_rate] * len(self.lmm_curve), self.lmm_curve, strike=self.strike_rate)
+        lmm_pricer_engine = LMM_GPU.GPULMMBatchPricer(self.ois_list_lmm, n_paths=self.n_paths, n_rates=len(self.lmm_curve))
+        lmm_calib = LMM_cal.GPULMMCalibrator(lmm_pricer_engine,f0=self.lmm_curve, market_rate=[self.market_rate] * len(self.lmm_curve), bwd_gpu=self.ois_list_lmm, strike=self.strike_rate)
         opt_sig_lmm = lmm_calib.run_lmm_optimization(init_sigmas=[self.rel_sigma_garch] * len(self.lmm_curve))
 
         return opt_a, opt_sig_hw, opt_sig_lmm
@@ -164,7 +163,7 @@ class Callableswap:
         self.hw_period = [int((y / self.years) * self.steps) for y in exercise_years]
         self.lmm_period = [int(y / self.dt) for y in exercise_years]
 
-    def calculate_metrics(self, model_type, init_rates, sigma_val, a_val=0.1):
+    def calculate_metrics(self, model_type, init_rates, sigma_val, a_val=0.1, beta = 1.0):
         results = {}
         bump = 0.0001 # 1bp
 
@@ -187,8 +186,8 @@ class Callableswap:
                 s_input = (s_scalar + 0.05) if name == 'Vega' else s_scalar
                 curr_rates = np.array(init_rates, dtype=np.float32) + (shift if name != 'Vega' else 0)
 
-                pricer = LMM_GPU.GPULMMPricer(curr_rates, n_paths=self.n_paths, sigma=s_input)
-                val = LSM_pricer_LMM.GPULMM_LSMPricer(pricer.generate_lmm_paths(), self.dt , strike=self.strike_rate).run_lsm(
+                pricer = LMM_GPU.GPULMMPricer(curr_rates, self.ois_list_lmm, beta=beta, n_paths=self.n_paths, sigma=s_input)
+                val = LSM_pricer_LMM.GPULMM_LSMPricer(pricer.generate_lmm_paths(), self.dt , strike=self.strike_rate, bwd_gpu=self.ois_list_lmm).run_lsm(
                     exercise_steps=self.lmm_period)
 
             results[name] = float(val.get())
@@ -232,7 +231,7 @@ class Callableswap:
 
         metrics_report = {
             "HW": self.calculate_metrics("HW", self.hw_curve, opt_sig_hw, opt_a),
-            "LMM": self.calculate_metrics("LMM", self.lmm_curve, opt_sig_lmm)
+            "LMM": self.calculate_metrics("LMM", self.lmm_curve, opt_sig_lmm, beta = 1.0)
         }
 
         return metrics_report

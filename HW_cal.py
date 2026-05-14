@@ -12,7 +12,7 @@ class GPUBatchCalibrator:
         self.init_a = init_a
         self.init_s = init_s
 
-        self.max_iter = 15
+        self.max_iter = 1000
 
     def calculate_prices_gpu(self, batch_paths):
         r_at_expiry = batch_paths[:, :, -1]
