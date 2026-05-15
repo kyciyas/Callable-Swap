@@ -4,7 +4,7 @@ from scipy.optimize import minimize
 
 class GPULMMCalibrator:
     # 1. 생성자(__init__) 단계에서 무위험 할인 커브인 bwd_gpu를 직접 주입받아 바인딩
-    def __init__(self, engine, market_rate, f0, bwd_gpu, strike=0.035, dt=0.25):
+    def __init__(self, engine, market_rate, f0, bwd_gpu, strike=0.035, dt=None):
         self.engine, self.f0 = engine, f0
         self.market_rates = cp.array(market_rate, dtype=cp.float32)
         self.strike = strike
@@ -26,7 +26,7 @@ class GPULMMCalibrator:
             # t 타임스텝 시점에 시뮬레이션된 만기(t) 그리드의 선도금리 F 추출
             fwd_rate = batch_paths[:, t, :, t]  # shape: (n_scenarios, n_paths)
             # Floating Leg 현금흐름 연산 = (선도금리 - 행사금리) * dt
-            payoff = (fwd_rate - self.strike) * self.dt
+            payoff = (fwd_rate - self.strike) * self.dt[t]
             # [Multi-curve 원리] 할인은 멤버 변수에 선언된 국고채 프록시 OIS 할인 인자(self.bwd_gpu)를 결합
             total_npv += payoff * self.bwd_gpu[t + 1]
 

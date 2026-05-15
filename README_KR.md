@@ -57,8 +57,25 @@
 - 단기금리 시뮬레이션의 기준축을 예측 커브가 아닌 무위험 할인 단기금리 ($r_{t}^{D}$) 과정으로 정렬하기 위한 최종 보정 $$\theta(t) = \theta_{base}(t) + a \Delta(t) = \frac{\partial f_F(0, t)}{\partial t} + a f_D(0, t) + \frac{\sigma^2}{2a}\left( 1 - e^{-2at} \right)$$
 - 오일러-마루야마(Euler-Maruyama) 이산화 기법을 사용하여 다음 타임스텝의 무위험 할인 단기금리 경로를 무작위로 전개$$r_{t+\Delta t}^D = r_t^D + \left( \theta(t) - a r_t^D \right) \Delta t + \sigma \sqrt{\Delta t} Z_t$$
 
-### Libor Market Model
+### Libor Market Model (LMM)
 #### Single curve
+- **Model (SDE)**: $dF_i(t) = F_i(t) \mu_i(t) dt + F_i(t) \sigma_i dW_t^i$
+- **Drift ($\mu_i(t)$)**: $\mu_i(t) = \sum_{j=\eta(t)}^{i} \frac{\tau_j F_j(t)}{1 + \tau_j F_j(t)} \sigma_i \sigma_j \rho_{ij}$
+- **Discount factor**: $P(t, T) = \prod_{k=\eta(t)}^{n} \frac{1}{1 + \tau_k F_k(t)}$
+- **Forward rate**: $F_i(t) = F(t; T_i, T_{i+1}) \quad \left(\text{Single Forward Rate, where } P(t,T) \text{ is derived from } F_i(t)\right)$
+
+#### Multi curve (실제 구현)
+- **OIS 이산 단리 선도금리 역산 (`ois_fwd`)**
+  $$f_D(t) = \frac{1}{\Delta t} \left( \frac{P_D(0, t)}{P_D(0, t+\Delta t)} - 1 \right)$$
+- **LMM 고유 이중 드리프트 성분 합산 (`base_drift`)**
+  $$\mu_{base, i}(t) = F_i(t) \sigma_i^2 \sum_{j=0}^{i} \frac{\Delta t \cdot F_j(t)}{1 + \Delta t \cdot F_j(t)}$$
+- **테너 베이시스 스프레드 추출 (`basis_spread`)**
+  $$\Delta_i(t) = F_i(t) - f_D(t)$$
+- **멀티 커브 통합 LMM 드리프트 보정 (`multi_curve_drift`)**
+  $$\mu_i^{MC}(t) = \mu_{base, i}(t) + \sigma_i \cdot \Delta_i(t)$$
+- **로그 노멀 포워드 레이트 경로 전개 (`paths`)**
+  $$F_i(t+\Delta t) = F_i(t) \cdot \exp\left( \left( \mu_i^{MC}(t) - \frac{1}{2}\sigma_i^2 \right) \Delta t + \sigma_i \sqrt{\Delta t} Z_t \right)$$
+
 
 ## 데이터 분석 결과 (Final Risk Metrics) ~~향후 수정 예정 (single curve 기반의 과거 데이터)~~
 - 입력 데이터는 2026년 05월 11일 기준 ECOS와 yfinance의 1년, 5년 10년 국고채의 10일분 데이터
@@ -136,7 +153,20 @@ negative convexity 를 확인 하였음
 ---
 
 ## 모델의 한계점 및 향후 과제 (Limitation)
-*   **Proxy Data 사용**: 시장에서 거래되는 OIS 스왑 금리(OIS Swap Rate)를 입력값으로 사용해야 하나, 오픈소스 데이터(API)의 한계로 인해 국고채(KTB) 금리를 프록시(Proxy)로 대용하여 OIS 커브를 구축함.
-*   **Volatility Surface 미반영**: 행사가 (3.5%) 및 시장 기준 스왑 금리 (1.25%)를 직접 입력해야 하는 구조로 시장의 상품 특성을 자동으로 업데이트 할 필요성 존재. 
-*   **상관계수 모델의 임의적 선택**: LMM 내 테너 간 상관관계를 단순한 모형인 Rebonato Parametrization을 이용하며 beta 값에 대한 최적화 과정이 없음.
-*   **Single-Curve Framework**: Multi-Curve (OIS-Libor Basis) 부트스트래핑 적용이 필요함.
+### 1. 실제 무역 금융 스케줄러 결합 (Holiday & Business Day Adjustment)
+* **목적**: 하드코딩된 고정 시계열 간격($\Delta t = 0.25$)을 깨고, 실제 휴일 캘린더와 영업일 수정 관습을 반영하여 이자 계산 일수의 정밀도를 1원 단위까지 동기화합니다.
+* **구현 요약**: 
+  * QuantLib의 `ql.Schedule` 객체를 호출하여 한국(SEOUL), 미국(NEW YORK) 등 시장 관습에 따른 정확한 영업일 이자 지급일을 생성합니다.
+  * 각 구간의 실제 일수 비율(Day Count Fraction)을 계산하여 기존 스칼라 `dt`를 **`dt_vector` (배열)** 구조로 전환한 뒤, CUDA 커널 및 LSM 프라이서 내부 연산의 모든 `dt` 포지션에 매핑합니다.
+
+### 3. 테너별 변동성 기간구조화 (Piecewise Constant Volatility Surface)
+* **목적**: 단일 스칼라 값으로 획일화된 변동성 최적화 구조를 탈피하여, 각 만기 구간(Tenor)별 시장 스왑 금리를 정확하게 조준 및 캘리브레이션함으로써 모델의 수치적 잔차(RMS Error)를 $10^{-5}$ 이하로 소멸시킵니다.
+* **구현 요약**: 
+  * `sigma` 파라미터를 단일 원소에서 테너 개수 크기의 벡터 구조(`params`)로 확장합니다.
+  * `LMM_cal.py` 내부의 야코비안(Jacobian) 행렬 미분 구조(`sig_batch = cp.tile(params, (n_params + 1, 1))`)를 활성화하여, 만기 구간별 독립 변동성을 수치 가속으로 동시에 찾아내는 조각별 상수(Piecewise Constant) 캘리브레이션을 작동시킵니다.
+
+### 4. 미들오피스용 리스크 관리 모듈 탑재 (Key Rate Delta Bucketing & DV01)
+* **목적**: 금융기관 리스크 관리의 핵심인 이자율 민감도 지표, 즉 금리가 1bp 움직일 때 발생하는 포트폴리오의 자산 가치 변화량(DV01, Delta Value of 1bp)을 실시간으로 산출합니다.
+* **구현 요약**: 
+  * 기저 금리 커브(`self.lmm_curve`) 전체를 획일적으로 흔드는 평행 이동(Parallel Shift) 외에, 각 만기 거점(Key Rate)별로 금리를 독립적으로 1bp씩 부분 펌핑(Bumping)하는 외부 가속 루프를 구축합니다.
+  * 구축된 고속 GPU 자산 평가 엔진(`GPULMM_LSMPricer`)의 압도적인 패스 생성 속도를 활용하여 수십 개의 테너 민감도를 수초 내에 동시 계산하고, 실전 리스크 헤징을 위한 테너별 델타 버킷 리포트를 최종 출력합니다.

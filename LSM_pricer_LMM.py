@@ -1,13 +1,13 @@
 import cupy as cp
 
 class GPULMM_LSMPricer:
-    def __init__(self, lmm_paths, dt, strike, bwd_gpu):
+    def __init__(self, lmm_paths, strike, bwd_gpu, dt = None):
         if isinstance(lmm_paths, list):
             self.paths = cp.stack(lmm_paths).astype(cp.float32)
         else:
             self.paths = cp.asarray(lmm_paths, dtype=cp.float32)
 
-        self.dt = cp.float32(dt)
+        self.dt = cp.array(dt, dtype=cp.float32).ravel()
         self.strike = cp.float32(strike)
 
         s = self.paths.shape
@@ -33,7 +33,7 @@ class GPULMM_LSMPricer:
                 # df_cum /= (1.0 + fwd_curve[:, j] * self.dt)
                 # payoff_t += (fwd_curve[:, j] - self.strike) * self.dt * df_cum
                 df_from_t_to_j = self.bwd_gpu[t + j + 1] / self.bwd_gpu[t]
-                payoff_t += (fwd_curve[:, j] - self.strike) * self.dt * df_from_t_to_j
+                payoff_t += (fwd_curve[:, j] - self.strike) * self.dt[t + j] * df_from_t_to_j
 
             swap_values[:, t] = payoff_t
 
@@ -66,7 +66,7 @@ class GPULMM_LSMPricer:
             exercise_value = swap_matrix[:, t_curr]
             itm_mask = exercise_value > 0
 
-            if int(cp.sum(itm_mask).item()) > 10:
+            if cp.sum(itm_mask) > 10:
                 X = self.paths[t_curr, itm_mask, 0]
                 Y = cashflows[itm_mask]
 

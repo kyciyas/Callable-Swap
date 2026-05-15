@@ -31,7 +31,7 @@ class Callableswap:
         self.steps = 500
         self.dt = 0.25
         self.n_paths = 100_000
-        self.load_parameters_from_csv()
+
         self.ois = 0.035
         self.hw_curve = []
         self.lmm_curve = []
@@ -41,6 +41,8 @@ class Callableswap:
         self.lmm_period = []
         self.rates = 0.0
         self.rates_list = {}
+
+        self.load_parameters_from_csv()
 
         ##### random seed fix #####
         np.random.seed(42)
@@ -146,7 +148,7 @@ class Callableswap:
         opt_hw = hw_calib.run_optimization()
         opt_a, opt_sig_hw = float(opt_hw[0]), float(opt_hw[1])
         lmm_pricer_engine = LMM_GPU.GPULMMBatchPricer(self.ois_list_lmm, n_paths=self.n_paths, n_rates=len(self.lmm_curve))
-        lmm_calib = LMM_cal.GPULMMCalibrator(lmm_pricer_engine,f0=self.lmm_curve, market_rate=[self.market_rate] * len(self.lmm_curve), bwd_gpu=self.ois_list_lmm, strike=self.strike_rate)
+        lmm_calib = LMM_cal.GPULMMCalibrator(lmm_pricer_engine,f0=self.lmm_curve, market_rate=[self.market_rate] * len(self.lmm_curve), bwd_gpu=self.ois_list_lmm, strike=self.strike_rate, dt=self.dt_vector)
         opt_sig_lmm = lmm_calib.run_lmm_optimization(init_sigmas=[self.rel_sigma_garch] * len(self.lmm_curve))
 
         return opt_a, opt_sig_hw, opt_sig_lmm
@@ -182,7 +184,7 @@ class Callableswap:
                 curr_rates = np.array(init_rates, dtype=np.float32) + (shift if name != 'Vega' else 0)
 
                 pricer = LMM_GPU.GPULMMPricer(curr_rates, self.ois_list_lmm, beta=beta, n_paths=self.n_paths, sigma=s_input)
-                val = LSM_pricer_LMM.GPULMM_LSMPricer(pricer.generate_lmm_paths(), self.dt , strike=self.strike_rate, bwd_gpu=self.ois_list_lmm).run_lsm(
+                val = LSM_pricer_LMM.GPULMM_LSMPricer(pricer.generate_lmm_paths(), strike=self.strike_rate, bwd_gpu=self.ois_list_lmm, dt=self.dt_vector).run_lsm(
                     exercise_steps=self.lmm_period)
 
             results[name] = float(val.get())
@@ -204,11 +206,44 @@ class Callableswap:
             "HR": hr
         }
 
+    # main.py의 Callableswap 클래스 내부에 추가
+    def generate_actual_dt_vector(self):
+        # 1. 평가일 및 만기일 설정
+        today = datetime.today()
+        start_date = ql.Date(today.day, today.month, today.year)
+        end_date = start_date + ql.Period(int(self.years), ql.Years)
+
+        # 2. QuantLib 정식 스케줄러 가동 (Holiday, Business Convention 완벽 반영)
+        schedule = ql.Schedule(
+            start_date,
+            end_date,
+            ql.Period(3, ql.Months),  # 3M 테너 고정
+            self.rate_data_handler.calendar,
+            self.rate_data_handler.business_convention,
+            self.rate_data_handler.business_convention,
+            ql.DateGeneration.Forward,
+            False
+        )
+
+        # 3. 각 구간별 실제 일수 계산 비율(Day Count Fraction) 추출
+        dt_list = []
+        for i in range(len(schedule) - 1):
+            dt_frac = self.rate_data_handler.day_count.yearFraction(schedule[i], schedule[i + 1])
+            dt_list.append(dt_frac)
+
+        # 프라이서와 최적화 엔진이 참조할 실제 스케줄 배열 고정 변수화
+        self.dt_vector = np.array(dt_list, dtype=np.float32)
+        # self.steps = len(self.dt_vector)  # 실제 영업일 밀림으로 조정된 최종 스텝 수 동기화
+
+        print(f"[스케줄러] 영업일 조율 완료. 총 스텝 수: {self.steps}")
+        print(f"[스케줄러] 실제 dt 구간 구조: {self.dt_vector[:4]} ... {self.dt_vector[-1]}")
+
     def run(self):
         print(f"\n[EXECUTE] {self.country_code} 파이프라인 연산을 시작합니다.")
         ##### gather rates data #####
         self.rate_data_handler = Datahandler.Datahandler(country=self.country_code)
         self.gather_rate_data()
+        self.generate_actual_dt_vector()
 
         ##### load OIS curve #####
         self.ois_data_handler = Datahandler.OisDataHandler(tag=self.country_code, rates_dict=self.rates_list)
