@@ -157,11 +157,3 @@ The project is organized into four layers: data collection, optimization, pricin
 * **OS Environment**: Windows 10 Pro / CUDA Toolkit 13.x ecosystem
 
 ---
-
-## Model Limitations & Strategic Roadmap
-
-### 4. Key Rate Delta Bucketing & DV01 Risk Architecture
-* **Objective**: Integrate a professional middle-office risk ledger that calculates the Dollar Value of a 1bp shift (DV01) across isolated term nodes, enabling granular risk immunization beyond generic parallel curve shifts.
-* **Implementation Blueprint**:
-  * Build an external batch bumping loop that applies a discrete +1bp shift exclusively to specific maturity anchor nodes (Key Rates) along `self.lmm_curve`.
-  * Leverage the massive parallel simulation speed of the optimized `GPULMM_LSMPricer` to evaluate dozens of twisted curve pathways in sub-second cycles, exporting a vectorized middle-office risk matrix for exact duration hedging.
