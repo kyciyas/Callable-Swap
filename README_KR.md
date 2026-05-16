@@ -4,8 +4,8 @@
 > **Language**: [English](./README.md) | [한국어]
 
 - 한국(KRW)과 미국(USD) 시장의 **Bermudan Callable Swap**의 가치를 GPGPU를 활용하여 고속으로 계산하는 것을 목적으로 함
-- GARCH 분석 및 Batch Calibration을 결합하여, Hull-White 모델과 LMM 모델의 Greeks 및 Hedge ratio를 계산함
-- Longstaff-Schwartz (LSM) 알고리즘을 이용하여 최적 조기행사 경계(Optimal Exercise Boundary)를 산출하고 가격을 결정
+- GARCH 분석 및 Batch Calibration을 결합하여, Hull-White 모델과 LMM 모델의 금리 민감도 기반 Delta 및 단순 Hedge Ratio 산출
+- Longstaff-Schwartz (LSM) 알고리즘을 이용하여 최적 조기행사 경계(근사적 조기행사 정책)를 산출하고 가격을 결정
 - 프록시를 이용한 multi curve 도입
 ---
 
@@ -13,15 +13,15 @@
 총 4개의 레이어로 구성되어 있으며, 데이터 수집, 최적화, 가격 계산 엔진, 실행파일로 구성되어 있음
 
 
-| 레이어 | 파일명 | 상세 역할                                                                                                                                                                                                          |
-| :--- | :--- |:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Data** | `Datahandler.py` | **데이터 수집 및 처리**: ECOS(한국은행) 및 yfinance API를 이용하여 당일 기준 1년, 5년 10년 만기 국고채(OIS 프록시)의 10일분 데이터 수집. 가장 최근 스냅샷과 과거 데이터를 dictionary 형태로 반환. 1Y, 5Y, 10Y 국고채 프록시 금리 데이터와 전일 KOFR 및 SOFR 초단기 금리를 이용하여 OIS curve 구현.    |
-| | `Volatility.py` | **통계 분석 엔진**: Datahandler에서 수집된 데이터를 기반으로 GARCH(1,1) 및 EWMA fitting 수행. 향후 최적화를 위한 초기값 생성.                                                                                                                     |
-| **Optimization** | `HW_cal.py` / `LMM_cal.py` | **이중 켈리브레이터**: 주어진 Swaption 가격을 기준으로 Gauss-Newton 최적화를 수행.                                                                                                                                                     |
-| **Engine** | `Model_selection.py` | **수익률 곡선 구축**: QuantLib을 이용하여 yield curve를 부트스트래핑함.                                                                                                                                                            |
-| | `HW_GPU.py` / `LMM_GPU.py` | **병렬 시뮬레이터**: 주어진 파라미터를 이용하여 이자율 경로 생성. Hull-White 및 LMM를 CUDA를 이용하여 계산. LMM은 Rebonato Parametrization ($\rho_{ij} = e^{-\beta \times \left\vert T_{i} - T_{j} \right\vert}$)을 이용하고 Cholesky decomposition 사용. |
-| | `LSM_pricer.py` / `LSM_pricer_LMM.py` | **조기행사 결정 엔진**: GPU 내에서 LSM 수행.                                                                                                                                                                                |
-| **Controller** | `main.py` | **실행 파일**                                                                                                                                                                                                      |
+| 레이어 | 파일명 | 상세 역할                                                                                                                                                                                                           |
+| :--- | :--- |:----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Data** | `Datahandler.py` | **데이터 수집 및 처리**: ECOS(한국은행) 및 yfinance API를 이용하여 당일 기준 1년, 5년 10년 만기 국고채(OIS 프록시)의 10일분 데이터 수집. 가장 최근 스냅샷과 과거 데이터를 dictionary 형태로 반환. 1Y, 5Y, 10Y 국고채 프록시 금리 데이터와 전일 KOFR 및 SOFR 초단기 금리를 이용하여 프록시 OIS curve 구현. |
+| | `Volatility.py` | **통계 분석 엔진**: Datahandler에서 수집된 데이터를 기반으로 GARCH(1,1) 및 EWMA fitting 수행. 향후 최적화를 위한 초기값 생성.                                                                                                                      |
+| **Optimization** | `HW_cal.py` / `LMM_cal.py` | **이중 켈리브레이터**: 주어진 Swaption 가격을 기준으로 Gauss-Newton 최적화를 수행.                                                                                                                                                      |
+| **Engine** | `Model_selection.py` | **수익률 곡선 구축**: QuantLib을 이용하여 yield curve를 부트스트래핑함.                                                                                                                                                             |
+| | `HW_GPU.py` / `LMM_GPU.py` | **병렬 시뮬레이터**: 주어진 파라미터를 이용하여 이자율 경로 생성. Hull-White 및 LMM를 CUDA를 이용하여 계산. LMM은 Rebonato Parametrization ($\rho_{ij} = e^{-\beta \times \left\vert T_{i} - T_{j} \right\vert}$)을 이용하고 Cholesky decomposition 사용.  |
+| | `LSM_pricer.py` / `LSM_pricer_LMM.py` | **조기행사 결정 엔진**: GPU 내에서 LSM 수행.                                                                                                                                                                                 |
+| **Controller** | `main.py` | **실행 파일**                                                                                                                                                                                                       |
 
 `Datahandler.py` → `Volatility.py` → `Model_selection.py` → `HW_cal.py / LMM_cal.py` → `HW_GPU.py / LMM_GPU.py` → `LSM_pricer.py / LSM_pricer_LMM.py`
 
@@ -48,24 +48,24 @@
 | :---: |:---------------------|:-------------|:----------------------------------------------------------------------------------------------------------------------------------|
 | $a$ | Mean Reversion Speed | 평균 회귀 속도     | 단기금리가 장기 평균 수준($\theta(t)/a$)으로 되돌아오는 속도를 결정하는 상수. 값이 클수록 금리가 평균으로 강하게 끌려가며 미래 금리의 변동 범위가 작아짐.                                    |
 | $\sigma$ | Volatility           | 단기금리 변동성     | 단기금리에 가해지는 무작위 충격의 크기를 조절하는 상수. 금리 옵션(Swaption, Cap/Floor)의 가격 결정 주요 요인.                                                          |
-| $\theta(t)$ | Drift Term           | 결정론적 드리프트 함수 | 시간이 지남에 따라 변하는 시간 의존적 함수(Time-dependent function). 현재 시장에 형성된 초기 이자율 가치 구조(Yield Curve)를 모델이 완벽하게 복제(Exact Calibration)할 수 있도록 함. |
+| $\theta(t)$ | Drift Term           | 결정론적 드리프트 함수 | 시간이 지남에 따라 변하는 시간 의존적 함수(Time-dependent function). 현재 시장에 형성된 초기 이자율 가치 구조(Yield Curve)를 시장 수익률 곡선을 근사적으로 반영할 수 있도록 함. |
 
 #### Multi curve (실제 구현)
 - 단일 커브 환경에서 현재 시장의 준거 금리 곡선(예: 3M CD 선도금리)인 ($f_F(0,t)$)를 모형이 완벽하게 복제(Exact Calibration)하기 위해 요구되는 결정론적 기초 드리프트 항$$\theta_{base}(t) = \frac{\partial f_F(0, t)}{\partial t} + a f_F(0, t) + \frac{\sigma^2}{2a}\left( 1 - e^{-2at} \right)$$
 - 연속 복리(Continuous Compounding) 체계 하에서 무위험 할인 채권 가격 테이블 ($P_D(0,t)$)로부터 각 타임스텝 ($\Delta t \cdot (t-1), \Delta t \cdot t$) 구간에 내재된 순수 무위험 순간 선도금리 ($f_D(0,t)$)를 역산 $$f_D(0, t) = -\frac{1}{\Delta t} \ln \left( \frac{P_D(0, t)}{P_D(0, t-\Delta t)} \right)$$
-- 시장의 예측 준거 금리(CD 3M 등)와 무위험 할인 금리(KOFR/OIS 등) 사이의 격차인 신용 및 유동성 테너 베이시스 스프레드를 시점별로 추출$$\Delta(t) = f_F(0, t) - f_D(0, t)$$
+- 시장의 예측 준거 금리(CD 3M 등)와 무위험 할인 금리(KOFR/OIS 등) 사이의 격차인 신용 및 유동성 테너 베이시스 스프레드를 프록시를 이용하여 시점별로 추출$$\Delta(t) = f_F(0, t) - f_D(0, t)$$
 - 단기금리 시뮬레이션의 기준축을 예측 커브가 아닌 무위험 할인 단기금리 ($r_{t}^{D}$) 과정으로 정렬하기 위한 최종 보정 $$\theta(t) = \theta_{base}(t) + a \Delta(t) = \frac{\partial f_F(0, t)}{\partial t} + a f_D(0, t) + \frac{\sigma^2}{2a}\left( 1 - e^{-2at} \right)$$
 - 오일러-마루야마(Euler-Maruyama) 이산화 기법을 사용하여 다음 타임스텝의 무위험 할인 단기금리 경로를 무작위로 전개$$r_{t+\Delta t}^D = r_t^D + \left( \theta(t) - a r_t^D \right) \Delta t + \sigma \sqrt{\Delta t} Z_t$$
 
 ### Libor Market Model (LMM)
 #### Single curve
 - **Model (SDE)**: $dF_i(t) = F_i(t) \mu_i(t) dt + F_i(t) \sigma_i dW_t^i$
-- **Drift ($\mu_i(t)$)**: $\mu_i(t) = \sum_{j=\eta(t)}^{i} \frac{\tau_j F_j(t)}{1 + \tau_j F_j(t)} \sigma_i \sigma_j \rho_{ij}$
+- **Drift ($\mu_i(t)$)**: $\mu_i(t) = \sum_{j=i+1} \frac{\tau_j F_j(t)}{1 + \tau_j F_j(t)} \sigma_i \sigma_j \rho_{ij}$
 - **Discount factor**: $P(t, T) = \prod_{k=\eta(t)}^{n} \frac{1}{1 + \tau_k F_k(t)}$
 - **Forward rate**: $F_i(t) = F(t; T_i, T_{i+1}) \quad \left(\text{Single Forward Rate, where } P(t,T) \text{ is derived from } F_i(t)\right)$
 
 #### Multi curve (실제 구현)
-- **OIS 이산 단리 선도금리 역산 (`ois_fwd`)**
+- **프록시 OIS 이산 단리 선도금리 역산 (`ois_fwd`)**
   $$f_D(t) = \frac{1}{\Delta t} \left( \frac{P_D(0, t)}{P_D(0, t+\Delta t)} - 1 \right)$$
 - **LMM 고유 이중 드리프트 성분 합산 (`base_drift`)**
   $$\mu_{base, i}(t) = F_i(t) \sigma_i^2 \sum_{j=0}^{i} \frac{\Delta t \cdot F_j(t)}{1 + \Delta t \cdot F_j(t)}$$
@@ -104,7 +104,7 @@
 
 
 ### 결과 분석
-- **Val (평가가치)**: 모델에서 계산한 공정가치로 실제 행사가가 3.5%, 시장 기준 스왑 금리가 1.25%인 Callable swap의 가치
+- **Val (평가가치)**: 모델에서 계산한 공정가치로 실제 행사가가 3.5%, underlying swap fixed rate가 1.25%인 Callable swap의 가치
 #### HW와 LMM의 비교
 1. **Val**: 시장 기준 스왑 금리인 1.25%를 기준으로 한국과 미국 시장 모두 HW는 고평가를, LMM은 저평가를 하고 있음.
 2. **Delta**: 한국과 미국 시장 모두 LMM이 HW보다 높은 값을 보이고 있으며 1bp 변화에 따른 파생상품 가격 변화는 LMM이 높다는 것이 확인됨.
@@ -120,8 +120,7 @@ negative convexity 를 확인 하였음
 2. 한국 시장과 미국 시장의 Delta 차이는 HW와 LMM이 각 0.1125, 0.0956로 미국 시장의 유동성과 효율성이 한국시장보다 높음을 설명하여 줌
 3. 한국 시장과 미국 시장의 Gamma 범주는 각 (0.0339 to -0.6263), (-0.0142 to -0.2952)로 미국의 Gamma가 더 안정적이며 이 역시 미국 시장의
 금리 변동성이 더욱 안정적인 상황을 설명하여 줌
-4. 한국 시장과 미국 시장의 Vega 차이는 모델간 차이에 비하여 매우 작으며 이는 전술한 LMM이 테너별 변동성을 반영한 것에서 기인함
-5. 한국 시장의 HR는 미국 시장보다 약 0.02 정도 높으며 이는 미국 시장의 유동성과 델타 민감도에서 기인하는 것으로 판단됨
+4. 한국 시장의 HR는 미국 시장보다 약 0.02 정도 높으며 이는 미국 시장의 유동성과 델타 민감도에서 기인하는 것으로 판단됨
 
 <figure>
   <img src="./Comprehensive_Yield_Comparison.png" alt="Yield Curve Comparison">
@@ -133,7 +132,7 @@ negative convexity 를 확인 하였음
 2. 시장 기준 스왑 금리를 기준으로 HW 모델은 채권 가격을 고평가, LMM은 저평가 하는 것이 확인되었음
 3. LMM은 테너별 변동성을 사전에 반영하여 HW에 비하여 낮은 베가값을 가지며 변동성 대비 낮은 변화를 보임
 4. HR로 미국 시장과 한국 시장의 유동성과 효율성 차이와 모델의 변동성 민감도를 전부 확인 할 수 있음
-5. LMM 에서 베타를 1.5로 사용하고 있으며 이는 일반적인 시장보다 높게 설정되어 있으며 이를 조정시 LMM 결과가 시장 기준 스왑 금리에 더 근접할 것으로 예상됨
+5. LMM 에서 Rebonato correlation decay parameter를 1.5로 사용하고 있으며 이는 일반적인 시장보다 높게 설정되어 있으며 이를 조정시 LMM 결과가 시장 기준 스왑 금리에 더 근접할 것으로 예상됨
 6. 단순히 하나의 모델만을 분석하는 것이 아니라 다양한 모델과 지표를 이용해야 함을 확인함
 ---
 
@@ -164,3 +163,4 @@ negative convexity 를 확인 하였음
 * **구현 요약**: 
   * 기저 금리 커브(`self.lmm_curve`) 전체를 획일적으로 흔드는 평행 이동(Parallel Shift) 외에, 각 만기 거점(Key Rate)별로 금리를 독립적으로 1bp씩 부분 펌핑(Bumping)하는 외부 가속 루프를 구축합니다.
   * 구축된 고속 GPU 자산 평가 엔진(`GPULMM_LSMPricer`)의 압도적인 패스 생성 속도를 활용하여 수십 개의 테너 민감도를 수초 내에 동시 계산하고, 실전 리스크 헤징을 위한 테너별 델타 버킷 리포트를 최종 출력합니다.
+                                                                                                                    
