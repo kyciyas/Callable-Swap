@@ -17,7 +17,7 @@ The project is organized into four layers: data collection, optimization, pricin
 | :--- | :--- | :--- |
 | **Data** | `Datahandler.py` | **Data Collection & Processing**: Collects 10 days of 1Y, 5Y, and 10Y government bond yield data (used as OIS proxies) from ECOS (Bank of Korea) and yfinance APIs. Returns both recent snapshots and historical data in dictionary format. Constructs proxy OIS curves using Korean Treasury yields together with KOFR/SOFR overnight rates. |
 | | `Volatility.py` | **Statistical Analysis Engine**: Performs GARCH(1,1) and EWMA fitting using data collected from `Datahandler.py`. Generates initial parameter estimates for calibration. |
-| **Optimization** | `HW_cal.py` / `LMM_cal.py` | **Dual Calibration Engine**: Performs Gauss-Newton optimization based on market swaption prices. |
+| **Optimization** | `HW_cal.py` / `LMM_cal.py` | **Dual Calibration Engine**: Performs multi-factor Gauss-Newton optimization based on market swaption prices or asset reference targets. |
 | **Engine** | `Model_selection.py` | **Yield Curve Construction**: Builds yield curves using QuantLib bootstrapping techniques. |
 | | `HW_GPU.py` / `LMM_GPU.py` | **Parallel Interest Rate Simulator**: Generates interest-rate paths using CUDA acceleration. Implements both Hull-White and LMM simulations. The LMM model uses Rebonato Parametrization (`ρij = exp(-β|Ti-Tj|)`) together with Cholesky decomposition. |
 | | `LSM_pricer.py` / `LSM_pricer_LMM.py` | **Early Exercise Decision Engine**: Performs Longstaff-Schwartz Monte Carlo pricing directly on the GPU. |
@@ -72,9 +72,9 @@ The project is organized into four layers: data collection, optimization, pricin
 - **Forward rate**: $F_i(t) = F(t; T_i, T_{i+1}) \quad \left(\text{Single Forward Rate, where } P(t,T) \text{ is derived from } F_i(t)\right)$
 
 #### Multi-curve (Actual Implementation)
-- **Back-calculation of the proxy OIS discrete simple forward rate (`ois_fwd`)**:
+- **Back-calculation of the proxy OIS discrete simple forward rate (`ois_fwd`)** extracted strictly under a discrete simple compounding framework:
   $$f_D(t) = \frac{1}{\Delta t} \left( \frac{P_D(0, t)}{P_D(0, t+\Delta t)} - 1 \right)$$
-- **Accumulation of the LMM-inherent base drift components (`base_drift`)**:
+- **Cumulative summation of LMM-inherent base drift components from j=0 to i (`base_drift`)** utilizing the generalized dynamic grid indexing layout:
   $$\mu_{base, i}(t) = F_i(t) \sigma_i^2 \sum_{j=0}^{i} \frac{\Delta t \cdot F_j(t)}{1 + \Delta t \cdot F_j(t)}$$
 - **Extraction of the tenor basis spread (`basis_spread`)**:
   $$\Delta_i(t) = F_i(t) - f_D(t)$$
