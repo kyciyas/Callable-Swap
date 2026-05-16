@@ -153,12 +153,6 @@ negative convexity 를 확인 하였음
 ---
 
 ## 모델의 한계점 및 향후 과제 (Limitation)
-### 1. 실제 무역 금융 스케줄러 결합 (Holiday & Business Day Adjustment)
-* **목적**: 하드코딩된 고정 시계열 간격($\Delta t = 0.25$)을 깨고, 실제 휴일 캘린더와 영업일 수정 관습을 반영하여 이자 계산 일수의 정밀도를 1원 단위까지 동기화합니다.
-* **구현 요약**: 
-  * QuantLib의 `ql.Schedule` 객체를 호출하여 한국(SEOUL), 미국(NEW YORK) 등 시장 관습에 따른 정확한 영업일 이자 지급일을 생성합니다.
-  * 각 구간의 실제 일수 비율(Day Count Fraction)을 계산하여 기존 스칼라 `dt`를 **`dt_vector` (배열)** 구조로 전환한 뒤, CUDA 커널 및 LSM 프라이서 내부 연산의 모든 `dt` 포지션에 매핑합니다.
-
 ### 3. 테너별 변동성 기간구조화 (Piecewise Constant Volatility Surface)
 * **목적**: 단일 스칼라 값으로 획일화된 변동성 최적화 구조를 탈피하여, 각 만기 구간(Tenor)별 시장 스왑 금리를 정확하게 조준 및 캘리브레이션함으로써 모델의 수치적 잔차(RMS Error)를 $10^{-5}$ 이하로 소멸시킵니다.
 * **구현 요약**: 
