@@ -16,12 +16,13 @@ class Datahandler:
             self.day_count = ql.Actual365Fixed()
             self.settlement_days = 1
             self.business_convention = ql.ModifiedFollowing
-
+            self.ois_convention = ql.Following
         elif country == "US":
             self.calendar = ql.UnitedStates(ql.UnitedStates.GovernmentBond)
             self.day_count = ql.Actual360()
             self.settlement_days = 0
             self.business_convention = ql.Following
+            self.ois_convention = ql.Following
         else:
             raise Exception('KR is for Korean market and US is for US market.')
 

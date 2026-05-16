@@ -13,15 +13,15 @@
 총 4개의 레이어로 구성되어 있으며, 데이터 수집, 최적화, 가격 계산 엔진, 실행파일로 구성되어 있음
 
 
-| 레이어 | 파일명 | 상세 역할                                                                                                                                                                                                           |
-| :--- | :--- |:----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Data** | `Datahandler.py` | **데이터 수집 및 처리**: ECOS(한국은행) 및 yfinance API를 이용하여 당일 기준 1년, 5년 10년 만기 국고채(OIS 프록시)의 10일분 데이터 수집. 가장 최근 스냅샷과 과거 데이터를 dictionary 형태로 반환. 1Y, 5Y, 10Y 국고채 프록시 금리 데이터와 전일 KOFR 및 SOFR 초단기 금리를 이용하여 프록시 OIS curve 구현. |
-| | `Volatility.py` | **통계 분석 엔진**: Datahandler에서 수집된 데이터를 기반으로 GARCH(1,1) 및 EWMA fitting 수행. 향후 최적화를 위한 초기값 생성.                                                                                                                      |
-| **Optimization** | `HW_cal.py` / `LMM_cal.py` | **이중 켈리브레이터**: 주어진 Swaption 가격을 기준으로 Gauss-Newton 최적화를 수행.                                                                                                                                                      |
-| **Engine** | `Model_selection.py` | **수익률 곡선 구축**: QuantLib을 이용하여 yield curve를 부트스트래핑함.                                                                                                                                                             |
-| | `HW_GPU.py` / `LMM_GPU.py` | **병렬 시뮬레이터**: 주어진 파라미터를 이용하여 이자율 경로 생성. Hull-White 및 LMM를 CUDA를 이용하여 계산. LMM은 Rebonato Parametrization ($\rho_{ij} = e^{-\beta \times \left\vert T_{i} - T_{j} \right\vert}$)을 이용하고 Cholesky decomposition 사용.  |
-| | `LSM_pricer.py` / `LSM_pricer_LMM.py` | **조기행사 결정 엔진**: GPU 내에서 LSM 수행.                                                                                                                                                                                 |
-| **Controller** | `main.py` | **실행 파일**                                                                                                                                                                                                       |
+| 레이어 | 파일명 | 상세 역할                                                                                                                                                                                                                                                                                                                                     |
+| :--- | :--- |:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Data** | `Datahandler.py` | **데이터 수집 및 처리**: ECOS(한국은행) 및 yfinance API를 이용하여 당일 기준 1년, 5년 10년 만기 국고채(OIS 프록시)의 10일분 데이터 수집. 가장 최근 스냅샷과 과거 데이터를 dictionary 형태로 반환. 1Y, 5Y, 10Y 국고채 프록시 금리 데이터와 전일 KOFR 및 SOFR 초단기 금리를 수집. 이자 지급일 및 정산 밀림 계산의 오차를 원천 배제하기 위해 IRS 예측 관습(`ModifiedFollowing`)과 무위험 OIS 할인 관습(`Following`)을 엄격히 이원화하여 프록시 OIS 할인 곡선(`ois_list_lmm`) 구축 완료. |
+| | `Volatility.py` | **통계 분석 엔진**: Datahandler에서 수집된 데이터를 기반으로 GARCH(1,1) 및 EWMA fitting 수행. 향후 최적화를 위한 초기값 생성.                                                                                                                                                                                                                                                |
+| **Optimization** | `HW_cal.py` / `LMM_cal.py` | **이중 켈리브레이터**: 주어진 Swaption 가격을 기준으로 Gauss-Newton 최적화를 수행.                                                                                                                                                                                                                                                                                |
+| **Engine** | `Model_selection.py` | **수익률 곡선 구축**: QuantLib을 이용하여 yield curve를 부트스트래핑함.                                                                                                                                                                                                                                                                                       |
+| | `HW_GPU.py` / `LMM_GPU.py` | **병렬 시뮬레이터**: 주어진 파라미터를 이용하여 이자율 경로 생성. Hull-White 및 LMM를 CUDA를 이용하여 계산. LMM은 Rebonato Parametrization ($\rho_{ij} = e^{-\beta \times \left\vert T_{i} - T_{j} \right\vert}$)을 이용하고 Cholesky decomposition 사용.                                                                                                                            |
+| | `LSM_pricer.py` / `LSM_pricer_LMM.py` | **조기행사 결정 엔진**: GPU 내에서 LSM 수행.                                                                                                                                                                                                                                                                                                           |
+| **Controller** | `main.py` | **실행 파일**                                                                                                                                                                                                                                                                                                                                 |
 
 `Datahandler.py` → `Volatility.py` → `Model_selection.py` → `HW_cal.py / LMM_cal.py` → `HW_GPU.py / LMM_GPU.py` → `LSM_pricer.py / LSM_pricer_LMM.py`
 
@@ -60,7 +60,7 @@
 ### Libor Market Model (LMM)
 #### Single curve
 - **Model (SDE)**: $dF_i(t) = F_i(t) \mu_i(t) dt + F_i(t) \sigma_i dW_t^i$
-- **Drift ($\mu_i(t)$)**: $\mu_i(t) = \sum_{j=i+1} \frac{\tau_j F_j(t)}{1 + \tau_j F_j(t)} \sigma_i \sigma_j \rho_{ij}$
+- **Drift ($\mu_i(t)$)**: $\mu_i(t) = \sum_{j=0}^{i} \frac{\tau_j F_j(t)}{1 + \tau_j F_j(t)} \sigma_i \sigma_j \rho_{ij}$
 - **Discount factor**: $P(t, T) = \prod_{k=\eta(t)}^{n} \frac{1}{1 + \tau_k F_k(t)}$
 - **Forward rate**: $F_i(t) = F(t; T_i, T_{i+1}) \quad \left(\text{Single Forward Rate, where } P(t,T) \text{ is derived from } F_i(t)\right)$
 
@@ -152,12 +152,6 @@ negative convexity 를 확인 하였음
 ---
 
 ## 모델의 한계점 및 향후 과제 (Limitation)
-### 3. 테너별 변동성 기간구조화 (Piecewise Constant Volatility Surface)
-* **목적**: 단일 스칼라 값으로 획일화된 변동성 최적화 구조를 탈피하여, 각 만기 구간(Tenor)별 시장 스왑 금리를 정확하게 조준 및 캘리브레이션함으로써 모델의 수치적 잔차(RMS Error)를 $10^{-5}$ 이하로 소멸시킵니다.
-* **구현 요약**: 
-  * `sigma` 파라미터를 단일 원소에서 테너 개수 크기의 벡터 구조(`params`)로 확장합니다.
-  * `LMM_cal.py` 내부의 야코비안(Jacobian) 행렬 미분 구조(`sig_batch = cp.tile(params, (n_params + 1, 1))`)를 활성화하여, 만기 구간별 독립 변동성을 수치 가속으로 동시에 찾아내는 조각별 상수(Piecewise Constant) 캘리브레이션을 작동시킵니다.
-
 ### 4. 미들오피스용 리스크 관리 모듈 탑재 (Key Rate Delta Bucketing & DV01)
 * **목적**: 금융기관 리스크 관리의 핵심인 이자율 민감도 지표, 즉 금리가 1bp 움직일 때 발생하는 포트폴리오의 자산 가치 변화량(DV01, Delta Value of 1bp)을 실시간으로 산출합니다.
 * **구현 요약**: 

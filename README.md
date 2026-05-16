@@ -67,7 +67,7 @@ The project is organized into four layers: data collection, optimization, pricin
 ### Libor Market Model (LMM)
 #### Single curve
 - **Model (SDE)**: $dF_i(t) = F_i(t) \mu_i(t) dt + F_i(t) \sigma_i dW_t^i$
-- **Drift ($\mu_i(t)$)**: $\mu_i(t) = \sum_{j=i+1} \frac{\tau_j F_j(t)}{1 + \tau_j F_j(t)} \sigma_i \sigma_j \rho_{ij}$
+- **Drift ($\mu_i(t)$)**: $\mu_i(t) = \sum_{j=0}^{i} \frac{\tau_j F_j(t)}{1 + \tau_j F_j(t)} \sigma_i \sigma_j \rho_{ij}$
 - **Discount factor**: $P(t, T) = \prod_{k=\eta(t)}^{n} \frac{1}{1 + \tau_k F_k(t)}$
 - **Forward rate**: $F_i(t) = F(t; T_i, T_{i+1}) \quad \left(\text{Single Forward Rate, where } P(t,T) \text{ is derived from } F_i(t)\right)$
 
@@ -159,12 +159,6 @@ The project is organized into four layers: data collection, optimization, pricin
 ---
 
 ## Model Limitations & Strategic Roadmap
-
-### 3. Piecewise Constant Volatility Surface (Tenor-Specific Volatility Structuring)
-* **Objective**: Eliminate the structural limitations of the single global scalar volatility framework by expanding into a tenor-by-tenor piecewise constant volatility surface. This mathematically forces the residual optimization error (RMS Error) below the $10^{-5}$ technical threshold against market swaption matrices.
-* **Implementation Blueprint**:
-  * Expand the `sigma` variable from a single element into a 1D tensor array (`params`) corresponding to the exact length of the forward curve grids.
-  * Activate the parallel computing tensor layout within `LMM_cal.py` (`sig_batch = cp.tile(params, (n_params + 1, 1))`) to compute forward Jacobian matrix gradients simultaneously via hardware acceleration.
 
 ### 4. Key Rate Delta Bucketing & DV01 Risk Architecture
 * **Objective**: Integrate a professional middle-office risk ledger that calculates the Dollar Value of a 1bp shift (DV01) across isolated term nodes, enabling granular risk immunization beyond generic parallel curve shifts.

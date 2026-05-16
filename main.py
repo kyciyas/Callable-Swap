@@ -211,18 +211,21 @@ class Callableswap:
         # 1. 평가일 및 만기일 설정
         today = datetime.today()
         start_date = ql.Date(today.day, today.month, today.year)
+        months_per_step = 3
+        dynamic_tenor = ql.Period(months_per_step, ql.Months)
         end_date = start_date + ql.Period(int(self.years), ql.Years)
+
 
         # 2. QuantLib 정식 스케줄러 가동 (Holiday, Business Convention 완벽 반영)
         schedule = ql.Schedule(
             start_date,
             end_date,
-            ql.Period(3, ql.Months),  # 3M 테너 고정
+            dynamic_tenor,
             self.rate_data_handler.calendar,
             self.rate_data_handler.business_convention,
             self.rate_data_handler.business_convention,
             ql.DateGeneration.Forward,
-            False
+            True  # <- EndOfMonth = True 반영 완료
         )
 
         # 3. 각 구간별 실제 일수 계산 비율(Day Count Fraction) 추출
