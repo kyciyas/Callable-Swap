@@ -13,15 +13,15 @@
 # Project Structure and File Responsibilities
 The project is organized into four layers: data collection, optimization, pricing engines, and execution control.
 
-| Layer | File | Detailed Role |
-| :--- | :--- | :--- |
+| Layer | File | Detailed Role                                                                                                                                                                                                                                                                                                                                 |
+| :--- | :--- |:----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Data** | `Datahandler.py` | **Data Collection & Processing**: Collects 10 days of 1Y, 5Y, and 10Y government bond yield data (used as OIS proxies) from ECOS (Bank of Korea) and yfinance APIs. Returns both recent snapshots and historical data in dictionary format. Constructs proxy OIS curves using Korean Treasury yields together with KOFR/SOFR overnight rates. |
-| | `Volatility.py` | **Statistical Analysis Engine**: Performs GARCH(1,1) and EWMA fitting using data collected from `Datahandler.py`. Generates initial parameter estimates for calibration. |
-| **Optimization** | `HW_cal.py` / `LMM_cal.py` | **Dual Calibration Engine**: Performs multi-factor Gauss-Newton optimization based on market swaption prices or asset reference targets. |
-| **Engine** | `Model_selection.py` | **Yield Curve Construction**: Builds yield curves using QuantLib bootstrapping techniques. |
-| | `HW_GPU.py` / `LMM_GPU.py` | **Parallel Interest Rate Simulator**: Generates interest-rate paths using CUDA acceleration. Implements both Hull-White and LMM simulations. The LMM model uses Rebonato Parametrization (`ρij = exp(-β|Ti-Tj|)`) together with Cholesky decomposition. |
-| | `LSM_pricer.py` / `LSM_pricer_LMM.py` | **Early Exercise Decision Engine**: Performs Longstaff-Schwartz Monte Carlo pricing directly on the GPU. |
-| **Controller** | `main.py` | **Execution Entry Point** |
+| | `Volatility.py` | **Statistical Analysis Engine**: Performs GARCH(1,1) and EWMA fitting using data collected from `Datahandler.py`. Generates initial parameter estimates for calibration.                                                                                                                                                                      |
+| **Optimization** | `HW_cal.py` / `LMM_cal.py` | **Dual Calibration Engine**: Performs multi-factor Gauss-Newton optimization based on market swaption prices or asset reference targets.                                                                                                                                                                                                      |
+| **Engine** | `Model_selection.py` | **Yield Curve Construction**: Builds yield curves using QuantLib bootstrapping techniques.                                                                                                                                                                                                                                                    |
+| | `HW_GPU.py` / `LMM_GPU.py` | **Parallel Interest Rate Simulator**: Generates interest-rate paths using CUDA acceleration. Implements both Hull-White and LMM simulations. The LMM model uses Rebonato Parametrization ($\rho_{ij} = e^{-\beta \times \left\vert T_{i} - T_{j} \right\vert}$) together with Cholesky decomposition.                                         |
+| | `LSM_pricer.py` / `LSM_pricer_LMM.py` | **Early Exercise Decision Engine**: Performs Longstaff-Schwartz Monte Carlo pricing directly on the GPU.                                                                                                                                                                                                                                      |
+| **Controller** | `main.py` | **Execution Entry Point**                                                                                                                                                                                                                                                                                                                     |
 
 `Datahandler.py` → `Volatility.py` → `Model_selection.py` → `HW_cal.py / LMM_cal.py` → `HW_GPU.py / LMM_GPU.py` → `LSM_pricer.py / LSM_pricer_LMM.py`
 

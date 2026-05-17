@@ -66,7 +66,7 @@ class GPULMM_LSMPricer:
             exercise_value = swap_matrix[:, t_curr]
             itm_mask = exercise_value > 0
 
-            if cp.sum(itm_mask) > 10:
+            if cp.sum(itm_mask) > 3:
                 X = self.paths[t_curr, itm_mask, 0]
                 Y = cashflows[itm_mask]
 
@@ -81,7 +81,8 @@ class GPULMM_LSMPricer:
 
                     cashflows[exercise_indices] = exercise_value[itm_mask][should_ex]
                 except:
-                    continue
+                    # 예외 발생 시 전하강 흐름 유지 (0 처리 차단)
+                    pass
 
         ########################################################################
         # (기존) final_df = 1.0 / (1.0 + self.paths[0, :, 0] * self.dt) 식의 단일커브 최종할인 제거

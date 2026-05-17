@@ -264,21 +264,140 @@ class Callableswap:
 
         metrics_report = {
             "HW": self.calculate_metrics("HW", self.hw_curve, opt_sig_hw, opt_a),
-            "LMM": self.calculate_metrics("LMM", self.lmm_curve, opt_sig_lmm, beta = 1.0)
+            "LMM": self.calculate_metrics("LMM", self.lmm_curve, opt_sig_lmm, beta = 1.5)
         }
+        lmm_dv01_report = self.calculate_key_rate_dv01(optimized_sigma=opt_sig_lmm, model_type="LMM", beta=1.5)
+        hw_dv01_report = self.calculate_key_rate_dv01(optimized_sigma=opt_sig_hw, model_type="HW", a_val=opt_a)
 
-        return metrics_report
+        return metrics_report, lmm_dv01_report, hw_dv01_report
+
+    def calculate_key_rate_dv01(self, optimized_sigma, model_type="LMM", a_val=0.1, beta=1.0):
+        print(f"\n" + "#" * 60)
+        print(f" [MIDDLE-OFFICE RISK DISPATCH: KEY RATE DELTA & DV01 BUCKETS]")
+        print("#" * 60)
+        print(f" - Target Model Engine : {model_type}")
+        print(f" - Bumping Magnitude  : +1bp (0.0001)")
+        print("#" * 60)
+
+        bump = 0.0001  # 1bp
+        dv01_buckets = {}
+
+        gc.collect()
+        cp.get_default_memory_pool().free_all_blocks()
+
+        # 1. 베이스 라인 가격 산출
+        if model_type == "HW":
+            base_pricer = HW_GPU.GPUHullWhitePricer(n_paths=self.n_paths, sigma=float(optimized_sigma), a=a_val)
+            base_raw_paths = base_pricer.generate_paths(np.array(self.hw_curve, dtype=np.float32).flatten(),
+                                                        self.ois_list_hw)
+            base_lsm = LSM_pricer.GPULSMPricer(cp.asarray(base_raw_paths), self.ois_list_hw, self.years / self.steps,
+                                               strike=self.strike_rate, exercise_steps=self.hw_period)
+            base_price = float(base_lsm.run_lsm_gpu())
+            target_curve = np.array(self.hw_curve, dtype=np.float32).flatten()
+        else:
+            base_pricer = LMM_GPU.GPULMMPricer(np.array(self.lmm_curve, dtype=np.float32), self.ois_list_lmm, beta=beta,
+                                               n_paths=self.n_paths, sigma=optimized_sigma)
+            base_lsm = LSM_pricer_LMM.GPULMM_LSMPricer(base_pricer.generate_lmm_paths(), self.strike_rate,
+                                                       self.ois_list_lmm, dt=self.dt_vector)
+            base_price = float(base_lsm.run_lsm(exercise_steps=self.lmm_period))
+            target_curve = np.array(self.lmm_curve, dtype=np.float32).flatten()
+
+        print(f" -> Base Fair Value (NPV) = {base_price:.6f}")
+        print(f" -> Key Rate Bumping Sequence Initiated...")
+
+        # -------------------------------------------------------------------------
+        # [수정 핵심 영역: HW 500개 폭발 차단 및 LMM 20개 축 대칭 정렬]
+        # -------------------------------------------------------------------------
+        ########################################################################
+        # 리스크를 측정할 표준 분기 노드 개수를 정의합니다 (5년 만기 / 0.25 dt = 20개)
+        n_risk_nodes = len(self.dt_vector)
+
+        # 500스텝 구조인 HW 모델과 20스텝 구조인 LMM 모델의 펌핑 루프를 일원화합니다.
+        for node_idx in range(n_risk_nodes):
+            gc.collect()
+            cp.get_default_memory_pool().free_all_blocks()
+
+            bumped_curve = target_curve.copy()
+
+            if model_type == "HW":
+                ########################################################################
+                # [수정 영역: HW 계단식 평탄화 버그 박멸 - Interpolated Bumping]
+                # 25칸씩 하드하게 잘라내어 중복 적립을 만들던 수치 노이즈를 전면 철회합니다.
+                # 500개의 모든 HW 타임스텝 그리드에 대해, 현재 타겟팅된 거점 테너 시점(target_t)과의
+                # 거리를 역산하여 선형 가중치(V-Shape 테너 마스크)로 전체 커브를 정밀 펌핑합니다.
+                # 이로 인해 헐-화이트 고유의 기간구조 감쇠 함수가 매끄러운 곡선(Curve) 형태로 복원됩니다.
+                target_t = (node_idx + 1) * self.dt  # 예: 0.25Y, 0.50Y, 0.75Y...
+                hw_timeline = np.linspace(0, self.years, self.steps + 1)
+
+                # 500개 각 칸마다 해당 거점 테너와의 인접도 가중치 계산 (삼각형 마커 범핑)
+                for s_idx in range(len(bumped_curve)):
+                    t_current = hw_timeline[s_idx]
+                    # 거점 테너 주변 0.25Y 반경 이내의 스텝들에 가중치 분산 배정
+                    weight = max(0.0, 1.0 - abs(t_current - target_t) / 0.25)
+                    bumped_curve[s_idx] += bump * weight
+
+                bumped_pricer = HW_GPU.GPUHullWhitePricer(n_paths=self.n_paths, sigma=float(optimized_sigma), a=a_val)
+                bumped_raw_paths = bumped_pricer.generate_paths(bumped_curve, self.ois_list_hw)
+                bumped_lsm = LSM_pricer.GPULSMPricer(cp.asarray(bumped_raw_paths), self.ois_list_hw,
+                                                     self.years / self.steps, strike=self.strike_rate,
+                                                     exercise_steps=self.hw_period)
+                bumped_price = float(bumped_lsm.run_lsm_gpu())
+                ####################################################################
+            else:
+                # LMM은 원래 20개 구조이므로 해당 인덱스 노드만 1bp 다이렉트 범핑
+                bumped_curve[node_idx] += bump
+                bumped_pricer = LMM_GPU.GPULMMPricer(bumped_curve, self.ois_list_lmm, beta=beta, n_paths=self.n_paths,
+                                                     sigma=optimized_sigma)
+                bumped_lsm = LSM_pricer_LMM.GPULMM_LSMPricer(bumped_pricer.generate_lmm_paths(), self.strike_rate,
+                                                             self.ois_list_lmm, dt=self.dt_vector)
+                bumped_price = float(bumped_lsm.run_lsm(exercise_steps=self.lmm_period))
+            ########################################################################
+
+            node_tenor_name = f"Tenor_{(node_idx + 1) * self.dt:.2f}Y"
+            dv01_buckets[node_tenor_name] = bumped_price - base_price
+
+            print(
+                f"   [버킷] {node_tenor_name} Node 1bp Bumped NPV: {bumped_price:.6f} | DV01: {dv01_buckets[node_tenor_name]:+.6f}")
+
+        print("#" * 60)
+        print(f" [KEY RATE DELTA COMPLETE - DISPATCHED TO MIDDLE-OFFICE LEDGER]")
+        print("#" * 60 + "\n")
+
+        return dv01_buckets
 
 if __name__ == "__main__":
     start = time.time()
 
     kr_engine = Callableswap('KR')
-    res_kr = kr_engine.run()
+
+    ########################################################################
+    # [수정 영역: 3구조 언팩 바인딩 및 DV01 리스크 대장 판다스 프레임 표출]
+    # 1. run() 함수가 뱉어내는 3개의 리포트 딕셔너리를 각각 언팩(Unpack)하여 받아옵니다.
+    res_kr, kr_lmm_dv01, kr_hw_dv01 = kr_engine.run()
 
     us_engine = Callableswap('US')
-    res_us = us_engine.run()
+    res_us, us_lmm_dv01, us_hw_dv01 = us_engine.run()
 
+    # 2. 기존 Greeks 지표 테이블 출력 (원본 무결성 유지)
     for c, r in [("KOREA", res_kr), ("USA", res_us)]:
-        print(f"\n{c} REPORT\n{pd.DataFrame(r).round(4)}")
+        print(f"\n" + "=" * 50)
+        print(f" [{c} BASE RISK METRICS REPORT]")
+        print("=" * 50)
+        print(pd.DataFrame(r).round(4))
+        print("=" * 50)
+
+    # 3. [상용 엔진 스펙] 미들오피스용 거점별 금리 1bp 민감도(DV01) 버킷 리포트 데이터프레임 출력
+    # 각 테너 노드별로 돈이 얼마 깨지거나 늘어나는지 판다스 표로 깨끗하게 정렬되어 뿜어집니다.
+    for c, lmm_d, hw_d in [("KOREA", kr_lmm_dv01, kr_hw_dv01), ("USA", us_lmm_dv01, us_hw_dv01)]:
+        print(f"\n" + "#" * 50)
+        print(f" [{c} MIDDLE-OFFICE KEY RATE DV01 DISPATCH]")
+        print("#" * 50)
+        dv01_df = pd.DataFrame({
+            "HW_DV01": pd.Series(hw_d),
+            "LMM_DV01": pd.Series(lmm_d)
+        })
+        print(dv01_df.round(6))  # DV01은 수치가 미세하므로 소수점 6자리까지 표현하는 것이 마켓 표준입니다.
+        print("#" * 50)
+        ########################################################################
 
     print(f"\nTotal Time: {time.time() - start:.2f}s")
