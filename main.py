@@ -206,7 +206,6 @@ class Callableswap:
             "HR": hr
         }
 
-    # main.py의 Callableswap 클래스 내부에 추가
     def generate_actual_dt_vector(self):
         # 1. 평가일 및 만기일 설정
         today = datetime.today()
