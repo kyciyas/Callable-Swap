@@ -15,9 +15,9 @@
 
 | 레이어 | 파일명 | 상세 역할                                                                                                                                                                                   |
 | :--- | :--- |:----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Data** | `Datahandler.py` | **데이터 수집 및 처리**: ECOS(한국은행) 및 yfinance API를 이용하여 당일 기준 1년, 5년 10년 만기 국고채 데이터와 전일 KOFR 및 SOFR 초단기 금리 수집. IRS 예측 관습(`ModifiedFollowing`)과 무위험 OIS 할인 관습(`Following`)을 적용.                 |
+| **Data** | `Datahandler.py` | **데이터 수집 및 처리**: ECOS(한국은행) 및 yfinance API를 이용하여 당일 기준 1년, 5년 10년 만기 국고채 데이터와 전일 KOFR 및 SOFR 초단기 금리 수집. IRS 예측 관습과 무위험 OIS 할인 관습을 적용.                 |
 | | `Volatility.py` | **통계 분석 엔진**: Datahandler에서 수집된 데이터를 기반으로 GARCH(1,1) 및 EWMA fitting 수행. 최적화를 위한 초기 변동성 값 추출.                                                                                            |
-| **Optimization** | `HW_cal.py` / `LMM_cal.py` | **켈리브레이터**: 비선형 최소자승법 (HW) 및 가우스-뉴턴 수치 미분 하강법 (LMM)을 이용하여 최적화.                                                                                                                          |
+| **Optimization** | `HW_cal.py` / `LMM_cal.py` | **켈리브레이터**: 비선형 최적화 알고리즘(Levenberg-Marquardt 등)을 사용하여 역사적 변동성 구조에 캘리브레이션.                                                                                                                          |
 | **Engine** | `Model_selection.py` | **수익률 곡선 구축**: QuantLib을 이용하여 yield curve를 부트스트래핑함.                                                                                                                                     |
 | | `HW_GPU.py` / `LMM_GPU.py` | **병렬 시뮬레이터**: 주어진 파라미터를 기반으로 GPU를 이용하여 이자율 경로 생성. LMM은 Rebonato Parametrization ($\rho_{ij} = e^{-\beta \times \left\vert T_{i} - T_{j} \right\vert}$)을 이용하고 Cholesky decomposition 사용. |
 | | `LSM_pricer.py` / `LSM_pricer_LMM.py` | **조기행사 결정 엔진**: CUDA를 이용하여 LSM 수행.                                                                                                                                                      |
@@ -31,10 +31,10 @@
 ### 이론적 배경
 - Single curve는 미래 현금 흐름을 예측하는 Forward curve 와 이를 현재 가치로 계산하는 Discount curve를 같다고 간주함 (Libor가 risk free rate)
 - 2008년 금융 위기 이후 대형 은행의 파산으로 인하여 은행간 신용 위험 (credit risk)와 자금의 유동성 위험 (liquidity risk) 발생
-- 이로 인하여 tenor basis가 확대되었으며, 무차익거래 조건이 성립하지 않음으로서 multi curve 도입이 필요해짐
+- 이로 인하여 tenor basis가 확대되었으며 이를 반영하기 위하여 multi curve 도입이 필요해짐
 
 ### Callable Swap에 multi-curve framework 적용이 필요한 이유
-- **헷지 비용의 기준**: 무담보 Callable Swap 매도 후 반대 포지션을 구성할 때, 헤지 포트폴리오의 조달 비용은 담보부 무위험 금리(OIS/KOFR/SOFR)를 따름
+- **헷지 비용의 기준**: Callable Swap 매도 후 반대 포지션을 구성할 때, 헷지 포트폴리오의 조달 비용은 무위험 금리(OIS/KOFR/SOFR)를 따름
 - **현금흐름의 기준**: 스왑 계약서상 변동금리(Floating Leg) 지급 조건은 신용/유동성 위험을 포함한 준거 금리의 Forward 커브를 따름
 - **헷지 비용과 현금흐름 이자율의 불일치 해결**: 현금 흐름과 헷지 비용을 계산하기 위한 금리가 다르기에 이를 각기 따로 적용해야 함
 
@@ -56,7 +56,7 @@ $$\theta_{base}(t) = \frac{\partial f_F(0, t)}{\partial t} + a f_F(0, t) + \frac
 - 이산적인 시간 간격을 이용하여 현재 시점에서 시장의 할인채 가격으로부터 선도이자율을 산출
 $$f_D(0, t) = -\frac{1}{\Delta t} \ln \left( \frac{P_D(0, t)}{P_D(0, t-\Delta t)} \right)$$
 - Forward rate 와 Discount rate 사이의 베이시스 스프레드를 시점별로 계산
-$$\Delta(t) = f_F(0, t) - f_D(0, t)$$
+$$\Delta(t) = f_D(0, t) - f_f(0, t)$$
 - 이산적 오차를 보정
 $$\theta(t) = \theta_{base}(t) + a \Delta(t) = \frac{\partial f_F(0, t)}{\partial t} + a f_D(0, t) + \frac{\sigma^2}{2a}\left( 1 - e^{-2at} \right)$$
 - 오일러-마루야마(Euler-Maruyama) 이산화 기법을 사용하여 다음 타임스텝의 무위험 할인 단기금리 경로를 무작위로 전개
@@ -70,17 +70,14 @@ $$r_{t+\Delta t}^D = r_t^D + \left( \theta(t) - a r_t^D \right) \Delta t + \sigm
 - **Forward rate**: $F_i(t) = F(t; T_i, T_{i+1}) \quad \left(\text{Single Forward Rate, where } P(t,T) \text{ is derived from } F_i(t)\right)$
 
 #### Multi curve (실제 구현)
-- **프록시 OIS 이산 단리 선도금리 역산**
+- 프록시 OIS 이산 단리 선도금리 역산
   $$f_D(t) = \frac{1}{\Delta t} \left( \frac{P_D(0, t)}{P_D(0, t+\Delta t)} - 1 \right)$$
-- **LMM 고유 이중 드리프트 성분 합산**
-  $$\mu_{base, i}(t) = F_i(t) \sigma_i^2 \sum_{j=0}^{i} \frac{\Delta t \cdot F_j(t)}{1 + \Delta t \cdot F_j(t)}$$
-- **테너 베이시스 스프레드 추출**
+- 테너 베이시스 스프레드 추출
   $$\Delta_i(t) = F_i(t) - f_D(t)$$
-- **멀티 커브 통합 LMM 드리프트 보정**
-  $$\mu_i^{MC}(t) = \mu_{base, i}(t) + \sigma_i \cdot \Delta_i(t)$$
-- **Lognormal 포워드 레이트 경로 전개**
+- 멀티 커브 통합 LMM 드리프트 보정
+  $$\mu_i^{MC}(t) = \sum_{j=\eta(t)}^{i} \frac{\Delta t \cdot F_j(t)}{1 + \Delta t \cdot F_j(t)} \sigma_i \sigma_j \rho_{ij} + \frac{\Delta_i(t)}{1 + \Delta t \cdot F_i(t)}$$
+- Lognormal 포워드 레이트 경로 전개
   $$F_i(t+\Delta t) = F_i(t) \cdot \exp\left( \left( \mu_i^{MC}(t) - \frac{1}{2}\sigma_i^2 \right) \Delta t + \sigma_i \sqrt{\Delta t} Z_t \right)$$
-
 ## 핵심 구현 기능
 
 ### LMM 가우스-뉴턴 벡터 하강
@@ -99,9 +96,7 @@ $$r_{t+\Delta t}^D = r_t^D + \left( \theta(t) - a r_t^D \right) \Delta t + \sigm
 ### 일반화된 가변 테너 스케쥴러 및 영업일 관습 적용
 - 자동화된 가변 그리드: CSV 파일에서 years, steps, dt는 각각 만기까지 남은 년수, HW 모델 계산 단계 수, 지급 간격 (년)으로 이를 바탕으로 매 구간의 실제 영업일 비율을 계산함
 - 월말 효과 적용: 한국과 미국은 각각 수정익일영업방식과 익일영업방식을 적용하였으며, 월말효과 연동 역시 적용됨
-- 이종 영업일 관습 이원화: 
-  * 선도 커브(Forward Index): 부동레그(CD 91일물 등) 예측을 위해 `Modified Following Business Day Convention` 적용
-  * 할인 커브(Discount Index): 초단기 무위험 복리(KOFR/SOFR 등) 정밀 자산 평가를 위해 `Following Business Day Convention` 적용
+- 이종 영업일 관습 이원화: Forward rate 및 Discount rate 계산을 위해 Following Business Day Convention을 적용하였으며 국가별 세부 휴일 달력을 이원화 함
 
 ## 데이터 결과 및 분석 (Final Risk Metrics)
 - 입력 데이터는 2026년 05월 18일 기준 ECOS와 yfinance의 1년, 5년 10년 국고채의 10일분 데이터 및 가장 최근의 SOFR 및 KOFR
@@ -199,11 +194,13 @@ $$r_{t+\Delta t}^D = r_t^D + \left( \theta(t) - a r_t^D \right) \Delta t + \sigm
 5. 두 시장에서 Key rate DV01은 거의 일치된 구조를 갖음을 확인 할 수 있음
 
 #### 분석
-1. 한국과 미국 모두 Forward curve 및 discount rate가 국고채 1y, 5y, 10y로 구성되어 있으며 이로 인하여 분석 결과에 큰 차이를 보이지 않는걸로 여겨짐
-2. 임의로 적용된 market rate인 1.25%를 기준으로 HW 모델은 채권 가격을 고평가, LMM은 저평가 하는 것이 확인되고 이는 LMM이 HW 모델과 다르게 테너별 변동성을 미리 계산하였기 때문으로 보여짐 
-3. HW 모델의 Key rate DV01은 평균 회귀를 가정하기에 단기 잉자율 변화는 장기 채권 가격에 미치는 영향이 적다고 분석하여 초기 변동성이 낮게 계산되는걸로 해석할 수 있음
-4. LMM의 Key rate DV01은 테너별 금리가 독립적이기에 단기 금리 변화의 민감도가 높게 나타나며 만기에 가까워지면 가치가 음수로 전환되며 이는 상관관계를 다요인으로 분석한 결과로 해석 할 수 있음
-4. 단순히 하나의 모델만을 분석하는 것이 아니라 다양한 모델과 지표를 이용해야 함을 확인함
+1. 한국과 미국 모두 Forward curve 및 discount rate가 한국과 미국의 국고채 1y, 5y, 10y로 구성되어 있으며, 프록시의 한계로 인하여 분석 결과에 큰 차이를 보이지 않는걸로 여겨짐
+2. 임의로 적용된 market rate인 1.25%를 기준으로 HW 모델은 채권 가격을 고평가, LMM은 저평가 하는 것이 확인되고 이는 LMM이 HW 모델과 다르게 테너별 변동성 상관관계와 기간 구조의 뒤틀림을 반영하였기 때문임
+3. LMM의 Vega가 음수로 나오는 것은 특정 테너의 변동성이 오를때 조기 행사 확률이 급격히 높아져 기초자산의 가치를 잠식하기 때문으로 보여짐
+4. Gamma가 HW, LMM 모두 음수이며 이는 옵션이 실행될 수 있음을 보여주는 주요 단서임 
+5. HW 모델의 Key rate DV01은 평균 회귀를 가정하기에 단기 잉자율 변화는 장기 채권 가격에 미치는 영향이 적다고 분석하여 초기 변동성이 낮게 계산되는걸로 해석할 수 있음 
+6. LMM의 Key rate DV01은 테너별 금리가 독립적이기에 단기 금리 변화의 민감도가 높게 나타나며 만기에 가까워지면 가치가 음수로 전환되며 이는 테너간 상관관계를 다요인으로 분석한 결과로 해석 할 수 있음 
+7. 단순히 하나의 모델만을 분석하는 것이 아니라 다양한 모델과 지표를 이용해야 함을 확인함
 ---
 
 ## 성능 및 기술적 최적화 (HPC)
@@ -211,7 +208,7 @@ $$r_{t+\Delta t}^D = r_t^D + \left( \theta(t) - a r_t^D \right) \Delta t + \sigm
 ### [실행 성능 리포트]
 *   **시뮬레이션 규모**: 시나리오당 100,000개 경로 생성.
 *   **연산 범위**: 2개 국가 시장(KRW, USD)에 대해 2개 모델(HW, LMM)의 총 4가지 시나리오 동시 분석.
-*   **전체 실행 시간**: 평균 **40초**
+*   **전체 실행 시간**: 평균 **240초**
 *   **포함 내역**: 실시간 데이터 수집 (ECOS 및 yfinance) + 수익률 곡선 구축 + 파라미터 최적화 + LSM + Greeks 산출.
 
 ### [하드웨어 사양]
