@@ -41,13 +41,13 @@ class Callableswap:
         self.lmm_period = []
         self.rates = 0.0
         self.rates_list = {}
+        self.hull_white_a = 0.03
 
         self.load_parameters_from_csv()
 
         ##### random seed fix #####
         np.random.seed(42)
         cp.random.seed(42)
-
 
     def load_parameters_from_csv(self, file_path="input.csv"):
         if not os.path.exists(file_path):
@@ -150,7 +150,6 @@ class Callableswap:
         lmm_pricer_engine = LMM_GPU.GPULMMBatchPricer(self.ois_list_lmm, n_paths=self.n_paths, n_rates=len(self.lmm_curve))
         lmm_calib = LMM_cal.GPULMMCalibrator(lmm_pricer_engine,f0=self.lmm_curve, market_rate=[self.market_rate] * len(self.lmm_curve), bwd_gpu=self.ois_list_lmm, strike=self.strike_rate, dt=self.dt_vector)
         opt_sig_lmm = lmm_calib.run_lmm_optimization(init_sigmas=[self.rel_sigma_garch] * len(self.lmm_curve))
-
         return opt_a, opt_sig_hw, opt_sig_lmm
 
     def get_exercise_steps(self):
@@ -256,17 +255,16 @@ class Callableswap:
         self.vol_engine = Volatility.VolatilityEngine(data=self.rates_list['10Y'])
         self.get_exercise_steps()
         self.rel_sigma_garch = self.vol_engine.get_comparison_report()['garch']
-
         self.model_init()
 
-        opt_a, opt_sig_hw, opt_sig_lmm = self.vol_calibration()
+        # opt_a, opt_sig_hw, opt_sig_lmm = self.vol_calibration()
 
         metrics_report = {
-            "HW": self.calculate_metrics("HW", self.hw_curve, opt_sig_hw, opt_a),
-            "LMM": self.calculate_metrics("LMM", self.lmm_curve, opt_sig_lmm, beta = 1.5)
+            "HW": self.calculate_metrics("HW", self.hw_curve, self.rel_sigma_garch * self.strike_rate, self.hull_white_a),
+            "LMM": self.calculate_metrics("LMM", self.lmm_curve, self.rel_sigma_garch, beta = 1.0)
         }
-        lmm_dv01_report = self.calculate_key_rate_dv01(optimized_sigma=opt_sig_lmm, model_type="LMM", beta=1.5)
-        hw_dv01_report = self.calculate_key_rate_dv01(optimized_sigma=opt_sig_hw, model_type="HW", a_val=opt_a)
+        lmm_dv01_report = self.calculate_key_rate_dv01(optimized_sigma=self.rel_sigma_garch, model_type="LMM", beta=1.0)
+        hw_dv01_report = self.calculate_key_rate_dv01(optimized_sigma=self.rel_sigma_garch, model_type="HW", a_val=self.hull_white_a)
 
         return metrics_report, lmm_dv01_report, hw_dv01_report
 
@@ -304,11 +302,7 @@ class Callableswap:
         print(f" -> Base Fair Value (NPV) = {base_price:.6f}")
         print(f" -> Key Rate Bumping Sequence Initiated...")
 
-        # -------------------------------------------------------------------------
-        # [수정 핵심 영역: HW 500개 폭발 차단 및 LMM 20개 축 대칭 정렬]
-        # -------------------------------------------------------------------------
-        ########################################################################
-        # 리스크를 측정할 표준 분기 노드 개수를 정의합니다 (5년 만기 / 0.25 dt = 20개)
+
         n_risk_nodes = len(self.dt_vector)
 
         # 500스텝 구조인 HW 모델과 20스텝 구조인 LMM 모델의 펌핑 루프를 일원화합니다.
@@ -319,12 +313,6 @@ class Callableswap:
             bumped_curve = target_curve.copy()
 
             if model_type == "HW":
-                ########################################################################
-                # [수정 영역: HW 계단식 평탄화 버그 박멸 - Interpolated Bumping]
-                # 25칸씩 하드하게 잘라내어 중복 적립을 만들던 수치 노이즈를 전면 철회합니다.
-                # 500개의 모든 HW 타임스텝 그리드에 대해, 현재 타겟팅된 거점 테너 시점(target_t)과의
-                # 거리를 역산하여 선형 가중치(V-Shape 테너 마스크)로 전체 커브를 정밀 펌핑합니다.
-                # 이로 인해 헐-화이트 고유의 기간구조 감쇠 함수가 매끄러운 곡선(Curve) 형태로 복원됩니다.
                 target_t = (node_idx + 1) * self.dt  # 예: 0.25Y, 0.50Y, 0.75Y...
                 hw_timeline = np.linspace(0, self.years, self.steps + 1)
 
@@ -341,16 +329,14 @@ class Callableswap:
                                                      self.years / self.steps, strike=self.strike_rate,
                                                      exercise_steps=self.hw_period)
                 bumped_price = float(bumped_lsm.run_lsm_gpu())
-                ####################################################################
+
             else:
-                # LMM은 원래 20개 구조이므로 해당 인덱스 노드만 1bp 다이렉트 범핑
                 bumped_curve[node_idx] += bump
                 bumped_pricer = LMM_GPU.GPULMMPricer(bumped_curve, self.ois_list_lmm, beta=beta, n_paths=self.n_paths,
                                                      sigma=optimized_sigma)
                 bumped_lsm = LSM_pricer_LMM.GPULMM_LSMPricer(bumped_pricer.generate_lmm_paths(), self.strike_rate,
                                                              self.ois_list_lmm, dt=self.dt_vector)
                 bumped_price = float(bumped_lsm.run_lsm(exercise_steps=self.lmm_period))
-            ########################################################################
 
             node_tenor_name = f"Tenor_{(node_idx + 1) * self.dt:.2f}Y"
             dv01_buckets[node_tenor_name] = bumped_price - base_price
@@ -369,9 +355,6 @@ if __name__ == "__main__":
 
     kr_engine = Callableswap('KR')
 
-    ########################################################################
-    # [수정 영역: 3구조 언팩 바인딩 및 DV01 리스크 대장 판다스 프레임 표출]
-    # 1. run() 함수가 뱉어내는 3개의 리포트 딕셔너리를 각각 언팩(Unpack)하여 받아옵니다.
     res_kr, kr_lmm_dv01, kr_hw_dv01 = kr_engine.run()
 
     us_engine = Callableswap('US')
@@ -385,8 +368,6 @@ if __name__ == "__main__":
         print(pd.DataFrame(r).round(4))
         print("=" * 50)
 
-    # 3. [상용 엔진 스펙] 미들오피스용 거점별 금리 1bp 민감도(DV01) 버킷 리포트 데이터프레임 출력
-    # 각 테너 노드별로 돈이 얼마 깨지거나 늘어나는지 판다스 표로 깨끗하게 정렬되어 뿜어집니다.
     for c, lmm_d, hw_d in [("KOREA", kr_lmm_dv01, kr_hw_dv01), ("USA", us_lmm_dv01, us_hw_dv01)]:
         print(f"\n" + "#" * 50)
         print(f" [{c} MIDDLE-OFFICE KEY RATE DV01 DISPATCH]")

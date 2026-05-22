@@ -1,9 +1,10 @@
 import cupy as cp
-
+import numpy as np
 class GPULMMPricer:
     def __init__(self, fwd_gpu, bwd_gpu, beta=0.1, n_paths=100000, horizon=5.0, dt=0.25, sigma=0.3):
         self.n_paths = int(n_paths)
         self.dt = cp.float32(dt)
+        sigma = self.convert_garch_to_pure_lmm_vol(fwd_gpu, sigma)
         self.sigma = cp.float32(sigma)
         self.sigma = cp.asarray(sigma, dtype=cp.float32)
         self.f0 = cp.asarray(fwd_gpu, dtype=cp.float32)
@@ -12,9 +13,23 @@ class GPULMMPricer:
         self.bwd_gpu = cp.asarray(bwd_gpu, dtype=cp.float32)
         self.beta = beta
 
+
         # rho = exp(-beta * |i-j|)
         self.rho = self._build_correlation_matrix()
         self.L = cp.linalg.cholesky(self.rho)
+
+    def convert_garch_to_pure_lmm_vol(self, fwd_gpu, sigma):
+        n_rates = len(fwd_gpu)  # 테너 개수 (20개)
+        pure_sigma_lmm = []
+
+        k = 0.12
+        for i in range(n_rates):
+            time_to_maturity = (i + 1) * self.dt
+
+            vol_i = 0.27 * sigma * np.exp(-k * time_to_maturity)
+            pure_sigma_lmm.append(float(vol_i))
+        print(pure_sigma_lmm)
+        return pure_sigma_lmm
 
     def _build_correlation_matrix(self):
         grid = cp.arange(self.n_rates)
