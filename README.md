@@ -334,5 +334,23 @@ $$r_{t+\Delta t}^D = r_t^D + \left( \theta(t) - a r_t^D \right) \Delta t + \sigm
 *   **CPU**: AMD Ryzen 9 5950X (16 Cores, 3.4 GHz)
 *   **GPU**: NVIDIA GeForce RTX 3070 (8GB VRAM, Ampere architecture)
 *   **OS**: Based on Windows 10 / CUDA 13.x
-* 
+
+## Future Extensions
+
+### Counterparty Credit Risk Analytics (XVA)
+
+Planned extension of the Monte Carlo framework toward counterparty risk analytics:
+
+* Expected Exposure (EE)
+* Potential Future Exposure (PFE)
+* Credit Valuation Adjustment (CVA)
+* Proxy credit curve construction using public market data
+* Wrong-Way Risk (WWR) analysis
+* Netting and collateral agreement simulation
+
+### Volatility Modeling
+
+* SABR model implementation for swaption volatility surface calibration
+* Comparison between HW, LMM, and SABR-based pricing frameworks
+* GPU-accelerated calibration and sensitivity analysis
 ---

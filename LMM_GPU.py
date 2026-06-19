@@ -28,7 +28,6 @@ class GPULMMPricer:
 
             vol_i = 0.27 * sigma * np.exp(-k * time_to_maturity)
             pure_sigma_lmm.append(float(vol_i))
-        print(pure_sigma_lmm)
         return pure_sigma_lmm
 
     def _build_correlation_matrix(self):
